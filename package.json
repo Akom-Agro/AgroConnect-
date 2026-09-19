@@ -1,0 +1,19 @@
+{
+  "name": "dulyagrivia-production",
+  "private": true,
+  "version": "2.1.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "vite": "^7.1.3",
+    "typescript": "^5.9.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {}
+}
