@@ -1,0 +1,28 @@
+# Checklist de mise en production DulyAgrivia 2.1
+
+- [ ] Projet Supabase créé et sauvegarde configurée
+- [ ] `docs/supabase_schema.sql` exécuté sans erreur
+- [ ] Auth e-mail/mot de passe configurée
+- [ ] Confirmation e-mail décidée et testée
+- [ ] Compte admin créé manuellement puis rôle admin attribué
+- [ ] Deux comptes Producteur testés : aucune fuite de données
+- [ ] Compte Acheteur testé
+- [ ] Compte Ouvrier testé
+- [ ] RLS vérifié dans Supabase
+- [ ] GPS testé sur Android Chrome et Samsung Internet
+- [ ] Domaine Netlify configuré
+- [ ] HTTPS actif
+- [ ] Variables VITE_SUPABASE_* configurées dans Netlify
+- [ ] `npm run build` passe sans erreur
+- [ ] Parcours inscription → ferme → champ → prévision testé
+- [ ] Parcours acheteur → appel d’offres testé
+- [ ] Notifications testées
+- [ ] Élevage : création de troupeau et historique sanitaire testés (isolation entre producteurs)
+- [ ] Réponse Producteur à un appel d'offres testée (champ ET troupeau)
+- [ ] Acceptation / refus par l'Acheteur testés, notification reçue par le Producteur
+- [ ] Tâches Ouvrier testées : un Ouvrier ne doit voir/modifier que ses propres tâches
+- [ ] Tentative de création d'un compte avec role=admin testée : le compte ne doit jamais devenir admin
+- [ ] `docs/supabase_schema.sql` rejoué une seconde fois sans erreur
+- [ ] IA : Edge Function + secret fournisseur configurés avant annonce de disponibilité
+- [ ] Paiements : fournisseur et webhooks testés avant annonce de disponibilité
+- [ ] Sauvegardes et procédure de restauration validées
