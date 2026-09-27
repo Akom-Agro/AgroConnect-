@@ -46,7 +46,7 @@ function App(){
 
  useEffect(()=>{
    if(!supabase){setLoading(false);return;}
-   supabase.auth.getSession().then(({data})=>setSession(data.session));
+   supabase.auth.getSession().then(({data})=>{setSession(data.session); if(!data.session) setLoading(false);});
    const {data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
    return ()=>subscription.unsubscribe();
  },[]);
