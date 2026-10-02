@@ -260,6 +260,156 @@ select * from (values
   ('Volaille', '🐔', 42),
   ('Caprins', '🐐', 150),
   ('Porcins', '🐖', 114),
+  drop policy if exists tenders_insert_buyer on public.tenders; create policy tenders_insert_buyer on public.tenders for insert with check (buyer_id=auth.uid() and exists(select 1 from public.profiles where id=auth.uid() and role in ('acheteur','admin')));
+drop policy if exists tenders_update_buyer on public.tenders; create policy tenders_update_buyer on public.tenders for update using (buyer_id=auth.uid() or public.is_admin()) with check (buyer_id=auth.uid() or public.is_admin());
+drop policy if exists tenders_delete_buyer on public.tenders; create policy tenders_delete_buyer on public.tenders for delete using (buyer_id=auth.uid() or public.is_admin());
+
+drop policy if exists responses_select on public.tender_responses; create policy responses_select on public.tender_responses for select using (producer_id=auth.uid() or exists(select 1 from public.tenders t where t.id=tender_id and t.buyer_id=auth.uid()) or public.is_admin());
+drop policy if exists responses_insert on public.tender_responses; create policy responses_insert on public.tender_responses for insert with check (producer_id=auth.uid() and exists(select 1 from public.profiles where id=auth.uid() and role='producteur') and (field_id is not null or herd_id is not null));
+drop policy if exists responses_update on public.tender_responses; create policy responses_update on public.tender_responses for update using (producer_id=auth.uid() or exists(select 1 from public.tenders t where t.id=tender_id and t.buyer_id=auth.uid()) or public.is_admin()) with check (producer_id=auth.uid() or exists(select 1 from public.tenders t where t.id=tender_id and t.buyer_id=auth.uid()) or public.is_admin());
+
+drop policy if exists notifications_select on public.notifications; create policy notifications_select on public.notifications for select using (user_id=auth.uid() or public.is_admin());
+drop policy if exists notifications_update on public.notifications; create policy notifications_update on public.notifications for update using (user_id=auth.uid() or public.is_admin()) with check (user_id=auth.uid() or public.is_admin());
+drop policy if exists notifications_insert_service on public.notifications; create policy notifications_insert_service on public.notifications for insert with check (public.is_admin());
+
+-- CORRECTIF 2.1.1 : notifications réellement envoyées au bon utilisateur lors du workflow
+-- appel d'offres → réponse → décision (au lieu de rester un module isolé sans producteur).
+create or replace function public.notify_new_tender_response() returns trigger language plpgsql security definer set search_path=public as $$
+declare buyer uuid; crop_name text;
+begin
+  select buyer_id into buyer from public.tenders where id=new.tender_id;
+  if buyer is not null then
+    insert into public.notifications(user_id,title,body,type)
+    values(buyer,'Nouvelle proposition reçue','Une proposition a été soumise sur votre appel d''offres.','commercial');
+  end if;
+  return new;
+end; $$;
+drop trigger if exists on_tender_response_created on public.tender_responses;
+create trigger on_tender_response_created after insert on public.tender_responses for each row execute procedure public.notify_new_tender_response();
+
+create or replace function public.notify_tender_response_decision() returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if new.status is distinct from old.status and new.status in ('accepted','rejected') then
+    insert into public.notifications(user_id,title,body,type)
+    values(new.producer_id, case when new.status='accepted' then 'Proposition acceptée' else 'Proposition refusée' end,
+      case when new.status='accepted' then 'Votre proposition a été acceptée par l''acheteur.' else 'Votre proposition a été refusée par l''acheteur.' end,
+      'commercial');
+  end if;
+  return new;
+end; $$;
+drop trigger if exists on_tender_response_decision on public.tender_responses;
+create trigger on_tender_response_decision after update on public.tender_responses for each row execute procedure public.notify_tender_response_decision();
+
+insert into public.crops(name,icon,cycle_days) values
+('Tomate','🍅',90),('Maïs','🌽',100),('Pastèque','🍉',90),('Légumes','🥬',60),('Plantain','🍌',300),('Avocat','🥑',180),('Café','☕',1095),('Cacao','🍫',1460)
+on conflict(name) do update set icon=excluded.icon, cycle_days=excluded.cycle_days, active=true;
+
+-- ============================================================
+-- DulyAgrivia — extension secteur Élevage + Financement + Intrants
+-- ============================================================
+create table if not exists public.livestock_types (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  icon text,
+  cycle_days int not null default 180,
+  active boolean not null default true
+);
+
+create table if not exists public.herds (
+  id uuid primary key default gen_random_uuid(),
+  farm_id uuid not null references public.farms(id) on delete cascade,
+  livestock_type_id uuid references public.livestock_types(id),
+  name text not null,
+  headcount int not null default 0,
+  region text,
+  latitude double precision,
+  longitude double precision,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.herd_health_records (
+  id uuid primary key default gen_random_uuid(),
+  herd_id uuid not null references public.herds(id) on delete cascade,
+  record_date date not null default current_date,
+  type text not null,
+  note text,
+  urgency text not null default 'normal' check (urgency in ('normal','eleve')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.tenders add column if not exists livestock_type_id uuid references public.livestock_types(id);
+-- CORRECTIF 2.1.1 : un appel d'offres agricole (crop_id) ou d'élevage (livestock_type_id),
+-- jamais les deux vides à la fois.
+alter table public.tenders drop constraint if exists tenders_one_sector_chk;
+alter table public.tenders add constraint tenders_one_sector_chk check (crop_id is not null or livestock_type_id is not null);
+
+-- CORRECTIF 2.1.1 : une réponse à un appel d'offres porte sur un champ (agriculture)
+-- OU un troupeau (élevage), jamais les deux, jamais aucun des deux.
+alter table public.tender_responses add column if not exists herd_id uuid references public.herds(id) on delete cascade;
+alter table public.tender_responses drop constraint if exists responses_one_target_chk;
+alter table public.tender_responses add constraint responses_one_target_chk check (
+  (field_id is not null and herd_id is null) or (field_id is null and herd_id is not null)
+);
+
+create table if not exists public.input_products (
+  id uuid primary key default gen_random_uuid(),
+  sector text not null check (sector in ('agriculture','elevage')),
+  category text not null,
+  name text not null,
+  supplier_name text,
+  price_note text,
+  region text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.funding_programs (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  organization text not null,
+  sector text not null check (sector in ('agriculture','elevage','both')),
+  region text,
+  description text,
+  contact_url text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+alter table public.livestock_types enable row level security;
+alter table public.input_products enable row level security;
+alter table public.funding_programs enable row level security;
+alter table public.herds enable row level security;
+alter table public.herd_health_records enable row level security;
+
+drop policy if exists livestock_types_read on public.livestock_types; create policy livestock_types_read on public.livestock_types for select to authenticated using (active or public.is_admin());
+drop policy if exists livestock_types_admin_write on public.livestock_types; create policy livestock_types_admin_write on public.livestock_types for all using (public.is_admin()) with check (public.is_admin());
+
+-- CORRECTIF 2.1.1 : lecture ouverte mais écriture/désactivation réservées à l'admin,
+-- pour que les utilisateurs ne puissent pas injecter eux-mêmes des annonces via le navigateur.
+drop policy if exists input_products_read on public.input_products; create policy input_products_read on public.input_products for select to authenticated using (active or public.is_admin());
+drop policy if exists input_products_admin_write on public.input_products; create policy input_products_admin_write on public.input_products for all using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists funding_programs_read on public.funding_programs; create policy funding_programs_read on public.funding_programs for select to authenticated using (active or public.is_admin());
+drop policy if exists funding_programs_admin_write on public.funding_programs; create policy funding_programs_admin_write on public.funding_programs for all using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists herds_owner_rw on public.herds; create policy herds_owner_rw on public.herds for all using (
+  farm_id in (select id from public.farms where owner_id = auth.uid()) or public.is_admin()
+) with check (
+  farm_id in (select id from public.farms where owner_id = auth.uid()) or public.is_admin()
+);
+
+drop policy if exists herd_health_owner_rw on public.herd_health_records; create policy herd_health_owner_rw on public.herd_health_records for all using (
+  herd_id in (select h.id from public.herds h join public.farms f on f.id = h.farm_id where f.owner_id = auth.uid()) or public.is_admin()
+) with check (
+  herd_id in (select h.id from public.herds h join public.farms f on f.id = h.farm_id where f.owner_id = auth.uid()) or public.is_admin()
+);
+
+insert into public.livestock_types (name, icon, cycle_days)
+select * from (values
+  ('Bovins', '🐄', 285),
+  ('Volaille', '🐔', 42),
+  ('Caprins', '🐐', 150),
+  ('Porcins', '🐖', 114),
   ('Aquaculture', '🐟', 180)
 ) as v(name, icon, cycle_days)
 where not exists (select 1 from public.livestock_types lt where lt.name = v.name);
