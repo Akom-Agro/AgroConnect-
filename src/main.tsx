@@ -7,13 +7,28 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const supabase = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-type Role = 'producteur' | 'acheteur' | 'ouvrier' | 'admin';
+type Role = 'producteur' | 'acheteur' | 'ouvrier' | 'admin' | 'super_admin';
+const isAdminRole=(r?:Role|null)=>r==='admin'||r==='super_admin';
 type Sector = 'agriculture' | 'elevage';
-type Screen = 'home'|'farm'|'field'|'herds'|'herd'|'market'|'tenders'|'map'|'ai'|'financement'|'intrants'|'tasks'|'notifications'|'profile'|'admin';
+type Screen = 'home'|'farm'|'field'|'herds'|'herd'|'market'|'tenders'|'map'|'ai'|'financement'|'intrants'|'tasks'|'team'|'notifications'|'profile'|'admin'|'pro'|'sales';
 // Écrans qui n'ont de sens que dans un seul secteur : on redirige vers l'accueil si on change de secteur dessus.
 const sectorOnlyScreens: Screen[] = ['field','herd'];
 
-type Profile = { id:string; full_name:string|null; phone:string|null; role:Role; country:string|null };
+type Plan = 'gratuit'|'pro';
+type Profile = { id:string; full_name:string|null; phone:string|null; role:Role; country:string|null; plan:Plan; pro_expires_at:string|null; referral_code:string|null };
+type PricingConfig = { region:string; monthly_amount:number; annual_amount:number; currency:string; monthly_amount_intl:number; annual_amount_intl:number; currency_intl:string };
+type CommissionConfig = { rate_percent:number };
+type Sale = { id:string; seller_id:string; buyer_id:string|null; crop_id:string|null; livestock_type_id:string|null; volume_kg:number; gross_amount:number; commission_rate_applied:number; commission_amount:number; net_amount:number; currency:string; status:string; created_at:string; crops?:Crop|null; livestock_types?:LivestockType|null };
+// Un compte est PRO uniquement si le plan est 'pro' ET (pas d'expiration, ou expiration future).
+// Reflète côté client la même logique que la fonction serveur is_pro() : l'accès réel est toujours
+// tranché par les policies RLS, ceci ne sert qu'à adapter l'affichage.
+const isProActive=(p?:Profile|null)=>!!p && p.plan==='pro' && (!p.pro_expires_at || new Date(p.pro_expires_at)>new Date());
+type ReferencePrice = { id:string; crop_id:string|null; livestock_type_id:string|null; price_per_kg:number; currency:string };
+type ListingStatus = 'disponible_maintenant'|'prochainement'|'programmee'|'appel_offres';
+type MarketListing = { id:string; seller_id:string; farm_id:string|null; crop_id:string|null; livestock_type_id:string|null; volume_kg:number; price_per_kg:number; currency:string; status:ListingStatus; available_from:string|null; note:string|null; created_at:string; crops?:Crop|null; livestock_types?:LivestockType|null };
+const listingStatusLabel:Record<ListingStatus,string>={disponible_maintenant:'Disponible maintenant',prochainement:'Prochainement',programmee:'Vente programmée',appel_offres:'Appel d’offres'};
+type ReferralRow = { id:string; referred_user_id:string; referred_signup_at:string; pro_conversion_at:string|null; commission_amount:number|null; currency:string|null; status:'pending'|'approved'|'paid'|'cancelled' };
+const referralStatusLabel:Record<string,string>={pending:'En attente',approved:'Validée',paid:'Payée',cancelled:'Annulée'};
 type Crop = { id:string; name:string; icon:string|null; cycle_days:number };
 type LivestockType = { id:string; name:string; icon:string|null; cycle_days:number };
 type Farm = { id:string; name:string; area_ha:number; region:string|null };
@@ -27,6 +42,7 @@ type Notification = { id:string; title:string; body:string|null; type:string; re
 type InputProduct = { id:string; sector:Sector; category:string; name:string; supplier_name:string|null; price_note:string|null; region:string|null };
 type FundingProgram = { id:string; name:string; organization:string; sector:'agriculture'|'elevage'|'both'; region:string|null; description:string|null; contact_url:string|null };
 type Task = { id:string; farm_id:string; field_id:string|null; herd_id:string|null; assigned_to:string|null; title:string; description:string|null; priority:string; status:string; due_date:string|null };
+type WorkerInvite = { id:string; code:string; farm_id:string; full_name:string|null; phone:string|null; used:boolean; used_by:string|null; created_at:string; used_at:string|null };
 
 const cropEmoji:Record<string,string>={Tomate:'🍅',Maïs:'🌽',Pastèque:'🍉',Légumes:'🥬',Plantain:'🍌',Avocat:'🥑',Café:'☕',Cacao:'🍫'};
 const livestockEmoji:Record<string,string>={Bovins:'🐄',Volaille:'🐔',Caprins:'🐐',Porcins:'🐖',Aquaculture:'🐟',Ovins:'🐑'};
@@ -38,16 +54,22 @@ function App(){
  const [profile,setProfile]=useState<Profile|null>(null);
  const [loading,setLoading]=useState(true);
  const [error,setError]=useState('');
+ const [recovery,setRecovery]=useState(false);
  const [screen,setScreen]=useState<Screen>('home');
  const [sector,setSector]=useState<Sector>('agriculture');
  const [selectedField,setSelectedField]=useState<string|null>(null);
  const [selectedHerd,setSelectedHerd]=useState<string|null>(null);
  const [toast,setToast]=useState('');
+ // Portail Super Administrateur : accessible uniquement via ?admin, jamais depuis le parcours public.
+ const adminMode=useMemo(()=>new URLSearchParams(window.location.search).has('admin'),[]);
 
  useEffect(()=>{
    if(!supabase){setLoading(false);return;}
    supabase.auth.getSession().then(({data})=>{setSession(data.session); if(!data.session) setLoading(false);});
-   const {data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
+   const {data:{subscription}}=supabase.auth.onAuthStateChange((event,s)=>{
+     if(event==='PASSWORD_RECOVERY')setRecovery(true);
+     setSession(s);
+   });
    return ()=>subscription.unsubscribe();
  },[]);
  useEffect(()=>{ if(session?.user) loadProfile(session.user); else setProfile(null); },[session]);
@@ -62,34 +84,86 @@ function App(){
  function changeSector(s:Sector){setSector(s);setScreen(cur=>sectorOnlyScreens.includes(cur)?'home':cur)}
  if(!supabase) return <ConfigScreen/>;
  if(loading) return <Splash/>;
- if(!session || !profile) return <Auth onDone={()=>{}} />;
+ if(recovery) return <UpdatePassword onDone={()=>{setRecovery(false);signOut();}}/>;
+ if(adminMode){
+   if(!session) return <AdminLogin/>;
+   if(!profile || !isAdminRole(profile.role)) return <AdminDenied error={error} signOut={signOut}/>;
+   return <Shell profile={profile} session={session} screen={screen} setScreen={setScreen} sector={sector} setSector={changeSector} selectedField={selectedField} setSelectedField={setSelectedField} selectedHerd={selectedHerd} setSelectedHerd={setSelectedHerd} toast={toast} setToast={setToast} signOut={signOut}/>;
+ }
+ if(!session) return <PublicGate/>;
+ if(!profile) return <div className="authpage"><div className="authcard"><div className="logoMark">D</div><h1>Connexion impossible</h1><p>Votre compte a bien été authentifié, mais son profil DulyAgrivia n’a pas pu être chargé.{error?` (${error})`:''} Veuillez contacter l’administrateur.</p><button className="secondary wide" onClick={signOut}>Se déconnecter</button></div></div>;
  return <Shell profile={profile} session={session} screen={screen} setScreen={setScreen} sector={sector} setSector={changeSector} selectedField={selectedField} setSelectedField={setSelectedField} selectedHerd={selectedHerd} setSelectedHerd={setSelectedHerd} toast={toast} setToast={setToast} signOut={signOut}/>;
 }
 
 function Splash(){return <div className="splash"><div className="logoMark">D</div><h1>DulyAgrivia</h1><p>L’agriculture et l’élevage connectés au marché.</p></div>}
 function ConfigScreen(){return <div className="authpage"><div className="authcard"><div className="logoMark">D</div><h1>DulyAgrivia</h1><h2>Configuration requise</h2><p>Ajoutez <b>VITE_SUPABASE_URL</b> et <b>VITE_SUPABASE_ANON_KEY</b> dans les variables d’environnement avant de lancer la version de production.</p><code>.env.local</code><div className="notice">Aucune donnée de démonstration n’est utilisée en production.</div></div></div>}
 
-function Auth({onDone}:{onDone:()=>void}){
- const [mode,setMode]=useState<'login'|'signup'>('login'); const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [name,setName]=useState(''); const [role,setRole]=useState<Exclude<Role,'admin'>>('producteur'); const [phone,setPhone]=useState(''); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState('');
+function Auth({onDone,initialMode}:{onDone:()=>void;initialMode?:'login'|'signup'}){
+ const [mode,setMode]=useState<'login'|'signup'|'forgot'|'invite'>(initialMode||'login'); const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [name,setName]=useState(''); const [role,setRole]=useState<'producteur'|'acheteur'>('producteur'); const [phone,setPhone]=useState(''); const [inviteCode,setInviteCode]=useState(''); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState('');
  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setMsg('');
   if(!supabase)return;
   // Le rôle choisi ici n'est qu'une indication côté client : la table profiles est
   // remplie par le trigger serveur handle_new_user(), qui rejette toute valeur hors
-  // producteur/acheteur/ouvrier (voir docs/supabase_schema.sql). Le formulaire ne propose
-  // d'ailleurs jamais "admin" comme option.
+  // producteur/acheteur (et ouvrier via code d'invitation, voir docs/supabase_schema.sql).
+  // Le formulaire ne propose jamais "admin"/"super_admin" comme option.
   if(mode==='login'){const {error}=await supabase.auth.signInWithPassword({email,password});if(error)setMsg(error.message);}
-  else {const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name,phone,role}}});if(error)setMsg(error.message);else if(!data.session)setMsg('Compte créé. Vérifiez votre e-mail si la confirmation est activée.');}
+  else if(mode==='forgot'){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin});setMsg(error?error.message:'Si cette adresse est connue, un lien de réinitialisation vient de lui être envoyé.');}
+  else if(mode==='invite'){const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name,phone,invite_code:inviteCode.trim()}}});if(error)setMsg(error.message);else if(!data.session)setMsg('Compte créé. Vérifiez votre e-mail si la confirmation est activée.');}
+  else {const refCode=new URLSearchParams(window.location.search).get('ref')||undefined;const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name,phone,role,referral_code:refCode}}});if(error)setMsg(error.message);else if(!data.session)setMsg('Compte créé. Vérifiez votre e-mail si la confirmation est activée.');}
   setBusy(false);onDone();
  }
- return <div className="authpage"><div className="authvisual"><div className="logoMark">D</div><span>DULYAGRIVIA • VIP</span><h1>Votre exploitation.<br/><em>Votre marché.</em></h1><p>Cultures et cheptel, prévisions, financement et intrants dans une seule plateforme.</p></div><form className="authcard" onSubmit={submit}><div className="authbrand"><div className="logoMark">D</div><b>DulyAgrivia</b></div><div className="tabs"><button type="button" className={mode==='login'?'selected':''} onClick={()=>setMode('login')}>Connexion</button><button type="button" className={mode==='signup'?'selected':''} onClick={()=>setMode('signup')}>Créer un compte</button></div>{mode==='signup'&&<><label>Nom complet<input value={name} onChange={e=>setName(e.target.value)} required /></label><label>Téléphone<input value={phone} onChange={e=>setPhone(e.target.value)} /></label><label>Je suis<select value={role} onChange={e=>setRole(e.target.value as Exclude<Role,'admin'>)}><option value="producteur">Producteur</option><option value="acheteur">Acheteur</option><option value="ouvrier">Ouvrier</option></select></label></>}<label>E-mail<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required /></label><label>Mot de passe<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required /></label>{msg&&<div className="notice">{msg}</div>}<button className="primary wide" disabled={busy}>{busy?'Connexion…':mode==='login'?'Se connecter':'Créer mon compte'}</button><small>Vos données sont protégées par l’authentification et les règles d’accès de la plateforme.</small></form></div>
+ return <div className="authpage"><div className="authvisual"><div className="logoMark">D</div><span>DULYAGRIVIA • VIP</span><h1>Votre exploitation.<br/><em>Votre marché.</em></h1><p>Cultures et cheptel, prévisions, financement et intrants dans une seule plateforme.</p></div><form className="authcard" onSubmit={submit}><div className="authbrand"><div className="logoMark">D</div><b>DulyAgrivia</b></div>{mode!=='forgot'&&mode!=='invite'&&<div className="tabs"><button type="button" className={mode==='login'?'selected':''} onClick={()=>setMode('login')}>Connexion</button><button type="button" className={mode==='signup'?'selected':''} onClick={()=>setMode('signup')}>Créer un compte</button></div>}
+  {mode==='signup'&&<><label>Nom complet<input value={name} onChange={e=>setName(e.target.value)} required /></label><label>Téléphone<input value={phone} onChange={e=>setPhone(e.target.value)} /></label><label>Je suis<select value={role} onChange={e=>setRole(e.target.value as 'producteur'|'acheteur')}><option value="producteur">Producteur</option><option value="acheteur">Acheteur</option></select></label></>}
+  {mode==='invite'&&<><h2>Rejoindre une exploitation</h2><label>Code d’invitation<input value={inviteCode} onChange={e=>setInviteCode(e.target.value)} required /></label><label>Nom complet<input value={name} onChange={e=>setName(e.target.value)} required /></label><label>Téléphone<input value={phone} onChange={e=>setPhone(e.target.value)} /></label></>}
+  {mode==='forgot'&&<h2>Mot de passe oublié</h2>}
+  {(mode==='login'||mode==='signup'||mode==='invite')&&<label>E-mail<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required /></label>}
+  {mode==='forgot'&&<label>E-mail<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required /></label>}
+  {mode!=='forgot'&&<label>Mot de passe<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required /></label>}
+  {msg&&<div className="notice">{msg}</div>}
+  <button type="button" onClick={submit} className="primary wide" disabled={busy}>{busy?'Patientez…':mode==='login'?'Se connecter':mode==='forgot'?'Envoyer le lien':mode==='invite'?'Rejoindre':'Créer mon compte'}</button>
+  <div className="authlinks">{mode==='login'&&<button type="button" className="linkbtn" onClick={()=>{setMode('forgot');setMsg('')}}>Mot de passe oublié ?</button>}{mode==='login'&&<button type="button" className="linkbtn" onClick={()=>{setMode('invite');setMsg('')}}>J’ai un code d’invitation Ouvrier</button>}{(mode==='forgot'||mode==='invite')&&<button type="button" className="linkbtn" onClick={()=>{setMode('login');setMsg('')}}>← Retour à la connexion</button>}</div>
+  <small>Vos données sont protégées par l’authentification et les règles d’accès de la plateforme.</small></form></div>
 }
 
-function Shell({profile,session,screen,setScreen,sector,setSector,selectedField,setSelectedField,selectedHerd,setSelectedHerd,toast,setToast,signOut}:{profile:Profile;session:Session;screen:Screen;setScreen:(s:Screen)=>void;sector:Sector;setSector:(s:Sector)=>void;selectedField:string|null;setSelectedField:(s:string|null)=>void;selectedHerd:string|null;setSelectedHerd:(s:string|null)=>void;toast:string;setToast:(s:string)=>void;signOut:()=>void}){
- const title:Record<Screen,string>={home:'Tableau de bord',farm:'Ma ferme',field:'Mon champ',herds:'Mon cheptel',herd:'Mon troupeau',market:'Marché DulyAgrivia',tenders:'Appels d’offres',map:'Carte agricole',ai:sector==='agriculture'?'AgroDoctor IA':'VétoDoctor IA',financement:'Financement',intrants:'Intrants',tasks:'Mes tâches',notifications:'Notifications',profile:'Mon profil',admin:'Super Administration'};
- const go=(s:Screen)=>setScreen(s);
- useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(t)}},[toast]);
- const items=(sector==='agriculture'
-   ?[['home','⌂','Accueil'],['farm','🌱','Ma ferme'],['market','🛒','Marché'],['tenders','↗','Appels d’offres'],['map','📍','Carte']]
+function PublicGate(){
+ const [showAuth,setShowAuth]=useState<false|'login'|'signup'>(false);
+ const [sector,setSector]=useState<Sector>('agriculture');
+ const [tenders,setTenders]=useState<Tender[]>([]);
+ const [listings,setListings]=useState<MarketListing[]>([]);
+ const [refPrices,setRefPrices]=useState<ReferencePrice[]>([]);
+ const [loading,setLoading]=useState(true);
+ useEffect(()=>{(async()=>{
+   if(!supabase){setLoading(false);return}
+   const [t,l,r]=await Promise.all([
+    supabase.from('tenders').select('*, crops(*), livestock_types(*)').eq('status','open').order('created_at',{ascending:false}).limit(12),
+    supabase.from('market_listings').select('*, crops(*), livestock_types(*)').eq('active',true).order('created_at',{ascending:false}).limit(24),
+    supabase.from('reference_prices').select('*')
+   ]);
+   setTenders((t.data||[]) as Tender[]);setListings((l.data||[]) as MarketListing[]);setRefPrices((r.data||[]) as ReferencePrice[]);setLoading(false);
+ })()},[]);
+ if(showAuth) return <Auth initialMode={showAuth} onDone={()=>{}} />;
+ const shownTenders=tenders.filter(t=>sector==='agriculture'?t.crop_id:t.livestock_type_id);
+ const shownListings=listings.filter(l=>sector==='agriculture'?l.crop_id:l.livestock_type_id);
+ function refFor(l:MarketListing){return refPrices.find(r=>sector==='agriculture'?r.crop_id===l.crop_id:r.livestock_type_id===l.livestock_type_id)}
+ return <div className="publicpage">
+  <div className="publictop"><div className="authbrand"><div className="logoMark">D</div><b>DulyAgrivia</b></div><div><button className="secondary" onClick={()=>setShowAuth('login')}>Se connecter</button> <button className="primary" onClick={()=>setShowAuth('signup')}>Créer un compte</button></div></div>
+  <div className="authvisual" style={{borderRadius:0}}><h1>Votre exploitation.<br/><em>Votre marché.</em></h1><p>Cultures et cheptel, prévisions, financement et intrants — consultez librement, créez un compte quand vous êtes prêt à acheter ou vendre.</p></div>
+  <div className="content">
+   <div className="sectorswitch" style={{maxWidth:320}}><button className={sector==='agriculture'?'selected':''} onClick={()=>setSector('agriculture')}>Agriculture</button><button className={sector==='elevage'?'selected':''} onClick={()=>setSector('elevage')}>Élevage</button></div>
+   <Section title="Offres des producteurs">{loading?<Loading/>:shownListings.length?<div className="marketgrid">{shownListings.map(l=>{const label=sector==='agriculture'?l.crops?.name:l.livestock_types?.name;const emoji=sector==='agriculture'?(cropEmoji[label||'']||'🌱'):(livestockEmoji[label||'']||'🐄');const rp=refFor(l);return <div className="marketcard" key={l.id}><div className="marketvisual">{emoji}<span className="badge green">{listingStatusLabel[l.status]}</span></div><div className="marketbody"><span className="eyebrow">{label||'—'}</span><h2>{Number(l.volume_kg).toLocaleString('fr-FR')} kg</h2><div className="twocol"><div><span>Prix du vendeur</span><b>{Number(l.price_per_kg).toLocaleString('fr-FR')} {l.currency}/kg</b></div><div><span>Référence DulyAgrivia</span><b>{rp?`${Number(rp.price_per_kg).toLocaleString('fr-FR')} ${rp.currency}/kg`:'—'}</b></div></div><button className="secondary" onClick={()=>setShowAuth('signup')}>Contacter le vendeur</button></div></div>})}</div>:<Empty text="Aucune offre publique pour le moment."/>}</Section>
+   <Section title="Appels d’offres ouverts">{loading?<Loading/>:shownTenders.length?<div className="tenderlist">{shownTenders.map(t=><div className="tender" key={t.id}><div className="cropicon">{sector==='agriculture'?(cropEmoji[t.crops?.name||'']||'🌾'):(livestockEmoji[t.livestock_types?.name||'']||'🐾')}</div><div className="tendermain"><h3>{t.crops?.name||t.livestock_types?.name}</h3><p>{t.volume_kg} kg • {t.delivery_zone||'Zone non précisée'}</p></div><button className="secondary" onClick={()=>setShowAuth('signup')}>Répondre</button></div>)}</div>:<Empty text="Aucun appel d’offres public pour le moment."/>}</Section>
+  </div>
+  <div className="publicfooter">DulyAgrivia — plateforme agricole et d’élevage. <button className="linkbtn" onClick={()=>setShowAuth('login')}>Connexion Producteur / Acheteur</button></div>
+ </div>;
+}
+
+function AdminLogin(){
+ const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState('');
+ async function submit(){if(!supabase)return;setBusy(true);setMsg('');const {error}=await supabase.auth.signInWithPassword({email,password});if(error)setMsg(error.message);setBusy(false);}
+ return <div className="authpage"><div className="authvisual"><div className="logoMark">D</div><span>DULYAGRIVIA</span><h1>Espace<br/><em>Super Administrateur.</em></h1><p>Accès réservé. Aucune création de compte n’est possible depuis cet écran.</p></div><div className="authcard"><div className="authbrand"><div className="logoMark">D</div><b>DulyAgrivia — Admin</b></div><label>E-mail<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required /></label><label>Mot de passe<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required /></label>{msg&&<div className="notice">{msg}</div>}<button type="button" onClick={submit} className="primary wide" disabled={busy}>{busy?'Connexion…':'Se connecter'}</button></div></div>;
+}
+function AdminDenied({error,signOut}:{error:string;signOut:()=>void}){
+ reture','⌂','Accueil'],['farm','🌱','Ma ferme'],['market','🛒','Marché'],['tenders','↗','Appels d’offres'],['map','📍','Carte']]
    :[['home','⌂','Accueil'],['herds','🐄','Mon cheptel'],['market','🛒','Marché'],['tenders','↗','Appels d’offres'],['financement','💰','Financement']]
  ) as [Screen,string,string][];
  return <div className="app"><aside className="sidebar"><div className="brand"><div className="logoMark">D</div><div><b>DulyAgrivia</b><small>AGRICULTURE • ÉLEVAGE</small></div></div><div className="sectorswitch"><button className={sector==='agriculture'?'selected':''} onClick={()=>{setSector('agriculture');go('home')}}>Agriculture</button><button className={sector==='elevage'?'selected':''} onClick={()=>{setSector('elevage');go('home')}}>Élevage</button></div><div className="rolebox"><span>{profile.role==='admin'?'SUPER ADMIN':profile.role.toUpperCase()}</span><b>{profile.full_name||'Utilisateur'}</b></div>{items.map(i=><NavItem key={i[0]} active={screen===i[0]} icon={i[1]} text={i[2]} onClick={()=>go(i[0])}/>)}<NavItem active={screen==='intrants'} icon="📦" text="Intrants" onClick={()=>go('intrants')}/>{profile.role==='ouvrier'&&<NavItem active={screen==='tasks'} icon="✓" text="Mes tâches" onClick={()=>go('tasks')}/>}<NavItem active={screen==='ai'} icon="✦" text={sector==='agriculture'?'AgroDoctor IA':'VétoDoctor IA'} onClick={()=>go('ai')}/>{profile.role==='admin'&&<NavItem active={screen==='admin'} icon="🛡" text="Administration" onClick={()=>go('admin')}/>}<div className="sidebottom"><NavItem active={screen==='notifications'} icon="◔" text="Notifications" onClick={()=>go('notifications')}/><NavItem active={screen==='profile'} icon="◯" text="Profil" onClick={()=>go('profile')}/></div></aside><main className="main"><header className="topbar"><div className="mobilebrand"><div className="logoMark">D</div><b>DulyAgrivia</b></div><div className="crumb">{title[screen]}</div><div className="topactions"><button className="iconbtn" onClick={()=>go('notifications')}>◔</button><button className="avatar" onClick={()=>go('profile')}>{(profile.full_name||'U').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}</button></div></header><div className="mobilesectorswitch"><button className={sector==='agriculture'?'selected':''} onClick={()=>{setSector('agriculture');go('home')}}>Agriculture</button><button className={sector==='elevage'?'selected':''} onClick={()=>{setSector('elevage');go('home')}}>Élevage</button></div><div className="content">{screen==='home'&&<Dashboard profile={profile} go={go} sector={sector}/>} {screen==='farm'&&<Farm profile={profile} go={go} setSelectedField={setSelectedField}/>} {screen==='field'&&<Field fieldId={selectedField} go={go}/>} {screen==='herds'&&<Herds profile={profile} go={go} setSelectedHerd={setSelectedHerd}/>} {screen==='herd'&&<HerdDetail herdId={selectedHerd} go={go}/>} {screen==='market'&&<Market sector={sector}/>} {screen==='tenders'&&<Tenders profile={profile} sector={sector} setToast={setToast}/>} {screen==='map'&&<MapScreen/>} {screen==='ai'&&<AI sector={sector}/>} {screen==='financement'&&<Financement sector={sector}/>} {screen==='intrants'&&<Intrants sector={sector}/>} {screen==='tasks'&&<Tasks profile={profile}/>} {screen==='notifications'&&<Notifications/>} {screen==='profile'&&<Profile profile={profile} session={session} signOut={signOut}/>} {screen==='admin'&&<Admin/>}</div>{toast&&<div className="toast">✓ <div><b>{toast}</b></div></div>}</main><nav className="bottomnav">{items.map(i=><button key={i[0]} className={screen===i[0]?'active':''} onClick={()=>go(i[0])}><span>{i[1]}</span><small>{i[2].split(' ')[0]}</small></button>)}</nav></div>
