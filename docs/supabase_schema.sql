@@ -524,3 +524,36 @@ create policy market_listings_seller_all on public.market_listings for all using
 -- Supabase (Dashboard > Edge Functions > diagnose-image > Secrets) — jamais dans le
 -- frontend. Tant que ce secret n'est pas configuré, la fonction répond explicitement
 -- {error:'not_configured'} plutôt que d'inventer un résultat.
+
+-- ============================================================
+-- DOSSIER UNIQUE DU 5 OCTOBRE 2026 — Points P0 (a,b,c,d)
+-- ============================================================
+-- (a) MARCHÉ — workflow de modération réel, distinct du statut de vente existant :
+--   market_listings.moderation_status (brouillon→soumise→en_controle→validee→publiee,
+--   ou modification_demandee/refusee/suspendue/expiree), avec trigger serveur
+--   enforce_market_moderation_transition qui impose les transitions autorisées par rôle
+--   (le vendeur ne peut jamais s'auto-publier) et exige un motif pour un refus ou une
+--   demande de modification. Journal d'audit : market_listing_history.
+--   Bug RLS trouvé et corrigé pendant cette session : la policy précédente empêchait
+--   l'admin de modérer les offres des AUTRES utilisateurs (elle exigeait seller_id =
+--   son propre id même pour l'admin) — remplacée par des policies insert/update/delete
+--   séparées. Cycle complet testé en direct : brouillon→soumission→refus motivé→
+--   correction→resoumission→validation→publication→visibilité publique confirmée
+--   pour un visiteur anonyme.
+-- (b) INTRANTS — colonne description ajoutée (caractéristiques du produit), gestion
+--   complète côté Admin (ajout, masquage/réactivation). Testé en direct.
+-- (c) CARTE — fields.boundary (polygone, liste de points lat/lng) et boundary_area_ha
+--   (superficie calculée automatiquement par formule du lacet sur projection
+--   équirectangulaire locale — vérifiée mathématiquement : carré 100×100 m → 1,00 ha).
+--   Carte réelle (tuiles OpenStreetMap via Leaflet, chargé en CDN dans index.html,
+--   pas de dépendance npm supplémentaire) avec dessin de polygone au clic.
+-- (d) AGRODOCTOR/VÉTODOCTOR — proposition de traitement désormais structurée et
+--   séparée de la recommandation générale : ai_diagnoses.treatment_product,
+--   treatment_dosage, treatment_precautions. Edge Function diagnose-image mise à
+--   jour (v2) avec consigne explicite de ne jamais inventer un dosage chiffré précis
+--   pour une marque qu'elle ne connaît pas réellement.
+--
+-- RAPPEL IMPORTANT — Bug réel trouvé et corrigé dans cette même session, signalé par un
+-- document d'audit externe (lui-même en grande partie erroné sur le reste, car écrit sans
+-- accès au vrai code) : worker_invites.created_by est NOT NULL mais n'était jamais envoyé
+-- par Team().createInvite() — corrigé côté frontend (created_by:profile.id ajouté à l'insert).
