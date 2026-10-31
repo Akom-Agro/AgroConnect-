@@ -7,3 +7,7 @@
 .publicpage{min-height:100vh;background:var(--bg)}.publictop{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}.publictop .secondary{margin-right:8px}.publicfooter{text-align:center;padding:30px 20px;color:var(--muted);font-size:11px}.authlinks{display:flex;justify-content:space-between;margin-top:10px}.authlinks .linkbtn{font-size:11px;padding:2px}
 .modal{position:fixed;inset:0;background:rgba(16,37,28,.55);display:flex;align-items:center;justify-content:center;z-index:30;padding:20px}.modalcard{background:#fff;border-radius:22px;padding:24px;max-width:460px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 24px 60px #0005}.modalcard label{display:block;font-size:11px;color:var(--muted);font-weight:700;margin-bottom:12px}.modalcard input,.modalcard select{display:block;width:100%;margin-top:5px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}.modalcard .sectionhead button{border:0;background:#f2f6f3;width:30px;height:30px;border-radius:9px;font-size:14px}.notice{background:#eef7f1;border:1px solid #cfe6d8;color:#19744f;border-radius:13px;padding:12px 15px;font-size:11px;margin:12px 0}
 @media(max-width:760px){.modalcard{padding:18px}}
+
+/* Ma ferme — outils du champ (ajout) */
+.quickbtn.selected{outline:2px solid #0b6b4b;background:#e8f5ee}
+.sectorswitch button{min-height:44px}
