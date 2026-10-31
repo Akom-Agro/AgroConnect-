@@ -67,3 +67,19 @@ update public.profiles set role='super_admin' where id='UUID_DU_COMPTE';
 
 ## 9. Sécurité
 RLS est activé sur toutes les tables sensibles. Faille corrigée le 1er octobre 2026 : un utilisateur pouvait auparavant modifier lui-même le statut de son propre paiement (`payment_intents`) — un client malveillant aurait pu se déclarer "payé" sans paiement réel. Seul un administrateur (ou le `service_role` depuis une future Edge Function) peut désormais changer ce statut. Tester obligatoirement avec deux comptes Producteur distincts, un Acheteur et un compte Ouvrier avant mise en production.
+
+## 10. Ma ferme — outils du champ (ajout d'octobre 2026)
+Fichier SQL : `docs/migration_ma_ferme.sql` (déjà appliqué sur la base de production ; à rejouer seulement sur une base neuve, après `supabase_schema.sql`).
+
+**Opérationnel (testé sur la base réelle avec simulation de rôles)** :
+- Journal des travaux par champ (`treatments`) : le producteur ET l'ouvrier peuvent lire et ajouter ; seuls propriétaire/admin modifient ou suppriment. Le serveur refuse toute matière active `interdit` et calcule la date « pas de récolte avant le… ».
+- Calculateur d'engrais (N/P₂O₅/K₂O par ha × surface, engrais composé optionnel, urée, superphosphate, potasse, sacs de 50 kg) et calculateur de dosage (produit total, dose par pulvérisateur, nombre de remplissages). Les calculs sont de l'arithmétique pure (`src/agrocalc.ts`).
+- Conseils par étape (semaine depuis la plantation) et par tâche.
+- Diagnostics liés au champ avec suivi (à traiter / traité / résolu).
+- Panneau Comité technique : règles, matières actives, conseils ; **seul un membre du comité peut valider** ; une règle validée est figée (nouvelle version obligatoire) ; historique dans `governance_history`. Les membres sont désignés par le Super Admin.
+
+**À savoir honnêtement** :
+- Les valeurs (besoins en engrais, doses) ne sont PAS dans le code : elles viennent de `agro_rules`. Les lignes `is_demo` sont des exemples signalés « DÉMO — non validé », supprimables d'un bouton. Sans règle, l'application affiche « dose à confirmer ».
+- Seules deux matières interdites sont chargées avec source (diméthoate, carbofuran — FAOLEX cmr160646/cmr160647) ; à reconfirmer par le comité.
+- L'API Plantix n'est PAS connectée (accès commercial requis ; Cameroun non listé). Le moteur interne est autonome ; un adaptateur pourra être ajouté plus tard, clé uniquement en secret d'Edge Function.
+- Diagnostic IA : la fonction `diagnose-image` (v3) enregistre le champ concerné, mais la clé Anthropic n'est pas encore configurée (prévue avant le lancement public).
