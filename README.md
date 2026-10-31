@@ -73,7 +73,7 @@ Fichier SQL : `docs/migration_ma_ferme.sql` (déjà appliqué sur la base de pro
 
 **Opérationnel (testé sur la base réelle avec simulation de rôles)** :
 - Journal des travaux par champ (`treatments`) : le producteur ET l'ouvrier peuvent lire et ajouter ; seuls propriétaire/admin modifient ou suppriment. Le serveur refuse toute matière active `interdit` et calcule la date « pas de récolte avant le… ».
-- Calculateur d'engrais (N/P₂O₅/K₂O par ha × surface, engrais composé optionnel, urée, superphosphate, potasse, sacs de 50 kg) et calculateur de dosage (produit total, dose par pulvérisateur, nombre de remplissages). Les calculs sont de l'arithmétique pure (`src/agrocalc.ts`).
+- Calculateurs distingués comme sur le terrain : **engrais granulé** (jeté au pied : grammage par pied validé par le comité, nombre de pieds selon l'écartement, total et sacs, N-P-K indicatif) et **produits liquides** (engrais foliaire, insecticide, fongicide, herbicide : dose par pulvérisateur en mL / cL ou g, par litre d'eau, produit total, nombre de remplissages ; dose donnée par hectare ou par pulvérisateur). Arithmétique pure dans `src/agrocalc.ts`.
 - Conseils par étape (semaine depuis la plantation) et par tâche.
 - Diagnostics liés au champ avec suivi (à traiter / traité / résolu).
 - Panneau Comité technique : règles, matières actives, conseils ; **seul un membre du comité peut valider** ; une règle validée est figée (nouvelle version obligatoire) ; historique dans `governance_history`. Les membres sont désignés par le Super Admin.
