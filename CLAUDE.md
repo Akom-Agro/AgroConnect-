@@ -19,9 +19,9 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Marché, appels d'offres, modération du marché, PRO / commission, parrainage, paiements (confirmation manuelle sécurisée)
 - Annuaires Financement et Intrants, administration (création producteur/PRO, intrants, monétisation)
 
-## En cours (livré, en attente de confirmation du build Netlify)
-- Ma ferme : journal des travaux, calculateurs (granulé au pied / liquide au pulvérisateur), conseils par étape et par tâche, santé liée au champ, panneau Comité technique
-- Base : appliquée et testée par simulation de rôles. Interface : syntaxe vérifiée, build réel non encore confirmé
+## En cours
+- Ma ferme (outils du champ, calculateurs granulé/liquide, comité) : build Netlify vert le 31/10 ; page Ma ferme et menu Comité vus en ligne ; test des onglets du champ à confirmer par le promoteur
+- Navigation mobile : barre du bas + menu « Plus » (livré, à confirmer)
 
 ## Sécurité base de données (31/10/2026, appliqué et vérifié)
 - Fonctions-déclencheurs : exécution publique retirée ; search_path fixé sur les 3 fonctions de parrainage ; `approve_due_referrals` réservée aux connectés (et contrôle admin interne)
