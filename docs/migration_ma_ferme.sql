@@ -33,7 +33,7 @@ create policy governance_history_read on public.governance_history for select to
 
 create table if not exists public.agro_rules (
   id uuid primary key default gen_random_uuid(),
-  rule_type text not null check (rule_type in ('besoin_engrais','dose_traitement')),
+  rule_type text not null check (rule_type in ('besoin_engrais','dose_pied','dose_foliaire','dose_traitement')),
   crop_id uuid not null references public.crops(id),
   territory text not null default 'Cameroun',
   payload jsonb not null, source text not null, version int not null default 1,
@@ -184,3 +184,5 @@ end; $$;
 create trigger ai_diagnoses_guard before insert or update on public.ai_diagnoses for each row execute procedure public.ai_diagnoses_guard();
 
 -- Données chargées (voir README) : matières interdites sourcées + lignes DÉMO (is_demo = true) supprimables depuis le panneau Comité.
+
+-- Types de règles : besoin_engrais (N-P-K kg/ha), dose_pied (granulé, g par pied), dose_foliaire (liquide, pulvérisateur), dose_traitement (pesticide/insecticide/fongicide/herbicide, champ payload.family).
