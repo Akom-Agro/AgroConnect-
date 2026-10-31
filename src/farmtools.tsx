@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { fertilizerPlan, dosagePlan, weekOf, type FertNeed, type Compound } from './agrocalc';
+import { fertilizerPlan, perPlantPlan, plantsFromSpacing, gramsPerPlant, liquidPlan, weekOf, type FertNeed, type Compound, type LiquidUnit } from './agrocalc';
 
 // Outils « Ma ferme » : journal des travaux, calculateurs, conseils par étape, santé liée au champ,
 // panneau comité. Module AJOUTÉ à l'existant : aucune écriture ici ne contourne les règles serveur
 // (RLS + triggers) ; les messages d'erreur du serveur sont affichés tels quels.
 
 type DB = any;
-type Rule = { id: string; rule_type: 'besoin_engrais' | 'dose_traitement'; crop_id: string; territory: string; payload: any; source: string; version: number; status: string; is_demo: boolean; crops?: { name: string } | null };
+type Rule = { id: string; rule_type: 'besoin_engrais' | 'dose_pied' | 'dose_foliaire' | 'dose_traitement'; crop_id: string; territory: string; payload: any; source: string; version: number; status: string; is_demo: boolean; crops?: { name: string } | null };
 type Advice = { id: string; crop_id: string; category: string; week_from: number; week_to: number; title: string; body: string; source: string; status: string; is_demo: boolean; crops?: { name: string } | null };
 type Ingredient = { id: string; name: string; family: string; legal_status: string; toxicity_class: string | null; pre_harvest_interval_days: number | null; source: string | null; notes: string | null; is_demo: boolean };
 
@@ -89,50 +89,95 @@ function Journal({ db, field }: { db: DB; field: any }) {
 }
 
 // ---------- Calculateurs ----------
-function pickRule(rules: Rule[], type: string): Rule | null {
-  const list = rules.filter(r => r.rule_type === type);
+// Deux familles, comme sur le terrain :
+//  • GRANULÉ (engrais) : on le jette au pied de la plante → grammes par pied (validé par le comité).
+//  • LIQUIDE (engrais foliaire, insecticide, fongicide, herbicide) : on le dilue dans le pulvérisateur → mL / cL par pulvérisateur.
+function pickRule(rules: Rule[], type: string, family?: string): Rule | null {
+  const list = rules.filter(r => r.rule_type === type && (!family || !r.payload?.family || r.payload.family === family));
   return list.find(r => r.status === 'validee') || list.find(r => r.is_demo) || null;
 }
 
 function Calculators({ db, field }: { db: DB; field: any }) {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<'granule' | 'liquide'>('granule');
   const [area, setArea] = useState(String(field.area_ha || ''));
+  useEffect(() => { (async () => { if (!field.crop_id) { setLoading(false); return; } const { data } = await db.from('agro_rules').select('*').eq('crop_id', field.crop_id).neq('status', 'suspendue'); setRules((data || []) as Rule[]); setLoading(false); })(); }, [field.id]);
+  if (loading) return <div className="loading">Chargement…</div>;
+  return <>
+    <div className="quick" style={{ marginBottom: 10 }}>
+      <Quick label="🌾 Engrais granulé (au pied)" on={mode === 'granule'} onClick={() => setMode('granule')} />
+      <Quick label="💧 Liquide (pulvérisateur)" on={mode === 'liquide'} onClick={() => setMode('liquide')} />
+    </div>
+    <label>Surface du champ (ha)<input type="number" min="0" step="any" value={area} onChange={e => setArea(e.target.value)} /></label>
+    {mode === 'granule' ? <GranuleCalc field={field} rules={rules} area={Number(area) || 0} /> : <LiquidCalc field={field} rules={rules} area={Number(area) || 0} />}
+  </>;
+}
+
+function GranuleCalc({ field, rules, area }: { field: any; rules: Rule[]; area: number }) {
+  const pRule = pickRule(rules, 'dose_pied');
+  const fRule = pickRule(rules, 'besoin_engrais');
+  const [sp, setSp] = useState({ row: '', plant: '', plants: '' });
   const [useCompound, setUseCompound] = useState(false);
   const [comp, setComp] = useState({ n: '15', p2o5: '15', k2o: '15' });
   const [manual, setManual] = useState({ n: '', p: '', k: '' });
-  const [dose, setDose] = useState({ perHa: '', water: '', tank: '16' });
-  useEffect(() => { (async () => { if (!field.crop_id) { setLoading(false); return; } const { data } = await db.from('agro_rules').select('*').eq('crop_id', field.crop_id).neq('status', 'suspendue'); setRules((data || []) as Rule[]); setLoading(false); })(); }, [field.id]);
-  const fRule = pickRule(rules, 'besoin_engrais');
-  const dRule = pickRule(rules, 'dose_traitement');
-  useEffect(() => { if (dRule) setDose(d => ({ ...d, perHa: String(dRule.payload.dose_per_ha ?? ''), water: String(dRule.payload.water_l_ha ?? '') })); }, [dRule?.id]);
+  useEffect(() => { if (pRule) setSp(s => ({ ...s, row: s.row || String(pRule.payload.spacing_row_m ?? ''), plant: s.plant || String(pRule.payload.spacing_plant_m ?? '') })); }, [pRule?.id]);
+  const plants = Number(sp.plants) || plantsFromSpacing(area, Number(sp.row) || 0, Number(sp.plant) || 0);
   const manualOn = !fRule && (manual.n || manual.p || manual.k);
   const need: FertNeed | null = fRule ? fRule.payload : manualOn ? { n_kg_ha: Number(manual.n) || 0, p2o5_kg_ha: Number(manual.p) || 0, k2o_kg_ha: Number(manual.k) || 0 } : null;
   const cmp: Compound | null = useCompound ? { n: Number(comp.n) || 0, p2o5: Number(comp.p2o5) || 0, k2o: Number(comp.k2o) || 0 } : null;
-  const fert = need ? fertilizerPlan(need, Number(area) || 0, cmp) : null;
-  const dz = dosagePlan({ dosePerHa: Number(dose.perHa) || 0, areaHa: Number(area) || 0, waterLPerHa: Number(dose.water) || 0, tankL: Number(dose.tank) || 0 });
-  if (loading) return <div className="loading">Chargement…</div>;
-  return <>
-    <label>Surface à traiter (ha)<input type="number" min="0" step="any" value={area} onChange={e => setArea(e.target.value)} /></label>
-    <div className="tender" style={{ marginTop: 12 }}><div className="tendermain">
-      <h3>Calculateur d’engrais — {field.crops?.name || 'culture'}</h3>
-      {fRule ? <p><DemoBadge rule={fRule} /> Besoins : N {fRule.payload.n_kg_ha} • P₂O₅ {fRule.payload.p2o5_kg_ha} • K₂O {fRule.payload.k2o_kg_ha} kg/ha <span className="muted">({fRule.source})</span></p>
-        : <><p className="muted">Aucune règle disponible pour cette culture : dose à confirmer. Vous pouvez saisir un besoin manuellement (résultat non validé).</p>
-          <div className="gpsrow"><label>N kg/ha<input type="number" value={manual.n} onChange={e => setManual({ ...manual, n: e.target.value })} /></label><label>P₂O₅ kg/ha<input type="number" value={manual.p} onChange={e => setManual({ ...manual, p: e.target.value })} /></label><label>K₂O kg/ha<input type="number" value={manual.k} onChange={e => setManual({ ...manual, k: e.target.value })} /></label></div></>}
-      <label style={{ flexDirection: 'row', gap: 8 }}><input type="checkbox" checked={useCompound} onChange={e => setUseCompound(e.target.checked)} /> J’utilise un engrais composé NPK</label>
-      {useCompound && <div className="gpsrow"><label>% N<input type="number" value={comp.n} onChange={e => setComp({ ...comp, n: e.target.value })} /></label><label>% P₂O₅<input type="number" value={comp.p2o5} onChange={e => setComp({ ...comp, p2o5: e.target.value })} /></label><label>% K₂O<input type="number" value={comp.k2o} onChange={e => setComp({ ...comp, k2o: e.target.value })} /></label></div>}
-      {fert ? <div className="adminlist">{fert.lines.map(l => <div key={l.label}><b>{l.label}</b><span className="badge green">{l.kg} kg • {l.sacks50} sac(s) de 50 kg</span></div>)}
-        <p className="muted">Apport couvert : N {fert.supplied.n} • P₂O₅ {fert.supplied.p2o5} • K₂O {fert.supplied.k2o} kg (besoin : N {fert.need.n} • P₂O₅ {fert.need.p2o5} • K₂O {fert.need.k2o}). Une partie au-delà du besoin peut venir de l’engrais composé.</p></div> : null}
-      {(fRule?.is_demo && fRule.status !== 'validee') || manualOn ? <div className="notice">⚠ Valeurs non validées par le comité technique : à utiliser comme exemple, pas comme recommandation.</div> : null}
-    </div></div>
-    <div className="tender" style={{ marginTop: 12 }}><div className="tendermain">
-      <h3>Calculateur de dosage (traitement)</h3>
-      {dRule ? <p><DemoBadge rule={dRule} /> {dRule.payload.ingredient_name || 'Produit'} <span className="muted">({dRule.source})</span></p> : <p className="muted">Aucune dose validée : dose à confirmer. Saisissez la dose de l’étiquette du produit.</p>}
-      <div className="gpsrow"><label>Dose par ha (étiquette)<input type="number" min="0" step="any" value={dose.perHa} onChange={e => setDose({ ...dose, perHa: e.target.value })} /></label><label>Eau par ha (L)<input type="number" min="0" step="any" value={dose.water} onChange={e => setDose({ ...dose, water: e.target.value })} /></label><label>Pulvérisateur (L)<input type="number" min="1" step="any" value={dose.tank} onChange={e => setDose({ ...dose, tank: e.target.value })} /></label></div>
-      {dz.productTotal > 0 && <div className="farmsummary"><div><span>Produit total</span><b>{dz.productTotal} {dRule?.payload.unit || 'unités'}</b></div><div><span>Par pulvérisateur plein</span><b>{dz.dosePerTank}</b></div><div><span>Remplissages</span><b>{dz.tanksToFill}</b></div><div><span>Eau totale</span><b>{dz.waterTotal} L</b></div></div>}
-      <p className="muted">Respectez toujours l’étiquette du produit et les équipements de protection.</p>
-    </div></div>
-  </>;
+  const fert = need ? fertilizerPlan(need, area, cmp) : null;
+  const pp = pRule ? perPlantPlan(Number(pRule.payload.grams_per_plant) || 0, plants) : null;
+  return <div className="tender" style={{ marginTop: 12 }}><div className="tendermain">
+    <h3>Engrais granulé — {field.crops?.name || 'culture'}</h3>
+    <p className="muted">Se répand au pied de la plante (jamais dans le pulvérisateur). Indiquez l’écartement pour connaître le nombre de pieds.</p>
+    <div className="gpsrow"><label>Entre les lignes (m)<input type="number" min="0" step="any" value={sp.row} onChange={e => setSp({ ...sp, row: e.target.value, plants: '' })} /></label><label>Entre les pieds (m)<input type="number" min="0" step="any" value={sp.plant} onChange={e => setSp({ ...sp, plant: e.target.value, plants: '' })} /></label><label>ou nombre de pieds<input type="number" min="0" value={sp.plants} onChange={e => setSp({ ...sp, plants: e.target.value })} /></label></div>
+    <div className="farmsummary"><div><span>Pieds estimés</span><b>{plants ? plants.toLocaleString('fr-FR') : '—'}</b></div></div>
+
+    <h3 style={{ marginTop: 14 }}>Grammage par pied</h3>
+    {pRule ? <>
+      <p><DemoBadge rule={pRule} /> {pRule.payload.product_name || 'Engrais'} : <b>{pRule.payload.grams_per_plant} g par pied</b> <span className="muted">({pRule.source})</span></p>
+      {pp && plants > 0 && <div className="farmsummary"><div><span>À jeter au pied</span><b>{pRule.payload.grams_per_plant} g / pied</b></div><div><span>Total à acheter</span><b>{pp.totalKg} kg</b></div><div><span>Sacs de 50 kg</span><b>{pp.sacks50}</b></div></div>}
+      {pRule.is_demo && pRule.status !== 'validee' && <div className="notice">⚠ Grammage DÉMO, non validé par le comité technique : exemple seulement.</div>}
+    </> : <p className="muted">Grammage par pied non encore validé pour cette culture : <b>dose à confirmer</b>. Le tableau ci-dessous donne seulement un calcul indicatif.</p>}
+
+    <h3 style={{ marginTop: 14 }}>Besoin en éléments nutritifs (kg/ha)</h3>
+    {fRule ? <p><DemoBadge rule={fRule} /> N {fRule.payload.n_kg_ha} • P₂O₅ {fRule.payload.p2o5_kg_ha} • K₂O {fRule.payload.k2o_kg_ha} <span className="muted">({fRule.source})</span></p>
+      : <><p className="muted">Aucune règle : saisie manuelle possible (résultat non validé).</p><div className="gpsrow"><label>N<input type="number" value={manual.n} onChange={e => setManual({ ...manual, n: e.target.value })} /></label><label>P₂O₅<input type="number" value={manual.p} onChange={e => setManual({ ...manual, p: e.target.value })} /></label><label>K₂O<input type="number" value={manual.k} onChange={e => setManual({ ...manual, k: e.target.value })} /></label></div></>}
+    <label style={{ flexDirection: 'row', gap: 8 }}><input type="checkbox" checked={useCompound} onChange={e => setUseCompound(e.target.checked)} /> J’utilise un engrais composé NPK</label>
+    {useCompound && <div className="gpsrow"><label>% N<input type="number" value={comp.n} onChange={e => setComp({ ...comp, n: e.target.value })} /></label><label>% P₂O₅<input type="number" value={comp.p2o5} onChange={e => setComp({ ...comp, p2o5: e.target.value })} /></label><label>% K₂O<input type="number" value={comp.k2o} onChange={e => setComp({ ...comp, k2o: e.target.value })} /></label></div>}
+    {fert && <div className="adminlist">{fert.lines.map(l => <div key={l.label}><b>{l.label}</b><span className="badge green">{l.kg} kg • {l.sacks50} sac(s){plants ? ` • ${gramsPerPlant(l.kg, plants)} g/pied` : ''}</span></div>)}
+      <p className="muted">Apport couvert : N {fert.supplied.n} • P₂O₅ {fert.supplied.p2o5} • K₂O {fert.supplied.k2o} kg (besoin : N {fert.need.n} • P₂O₅ {fert.need.p2o5} • K₂O {fert.need.k2o}). Les « g/pied » se répartissent souvent en plusieurs passages sur la saison.</p></div>}
+    {((fRule?.is_demo && fRule.status !== 'validee') || manualOn) && <div className="notice">⚠ Besoins non validés par le comité technique : exemple, pas une recommandation.</div>}
+  </div></div>;
+}
+
+const liquidKinds: [string, string][] = [['foliaire', 'Engrais foliaire'], ['insecticide', 'Insecticide'], ['fongicide', 'Fongicide'], ['herbicide', 'Herbicide'], ['autre', 'Autre pesticide']];
+
+function LiquidCalc({ field, rules, area }: { field: any; rules: Rule[]; area: number }) {
+  const [kind, setKind] = useState('foliaire');
+  const rule = kind === 'foliaire' ? pickRule(rules, 'dose_foliaire') : pickRule(rules, 'dose_traitement', kind);
+  const [d, setD] = useState({ dose: '', unit: 'mL' as LiquidUnit, basis: 'ha' as 'ha' | 'pompe', water: '', tank: '16' });
+  useEffect(() => { setD(x => rule ? { ...x, dose: String(rule.payload.dose_per_ha ?? ''), unit: (rule.payload.unit as LiquidUnit) || 'mL', basis: 'ha', water: String(rule.payload.water_l_ha ?? '') } : { ...x, dose: '', water: '' }); }, [rule?.id, kind]);
+  const r = liquidPlan({ dose: Number(d.dose) || 0, unit: d.unit, basis: d.basis, areaHa: area, waterLPerHa: Number(d.water) || 0, tankL: Number(d.tank) || 0 });
+  const bu = r.solid ? 'g' : 'mL';
+  const show = (v: number) => (r.solid ? (v >= 1000 ? `${(v / 1000).toLocaleString('fr-FR')} kg` : `${v} g`) : (v >= 1000 ? `${(v / 1000).toLocaleString('fr-FR')} L` : `${v} mL`));
+  return <div className="tender" style={{ marginTop: 12 }}><div className="tendermain">
+    <h3>Produit liquide / pulvérisateur</h3>
+    <p className="muted">Se dilue dans l’eau du pulvérisateur : engrais foliaire, insecticide, fongicide, herbicide.</p>
+    <label>Type de produit<select value={kind} onChange={e => setKind(e.target.value)}>{liquidKinds.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+    {rule ? <p><DemoBadge rule={rule} /> {rule.payload.product_name || rule.payload.ingredient_name || 'Produit'} <span className="muted">({rule.source})</span></p> : <p className="muted">Aucune dose validée pour ce type et cette culture : <b>dose à confirmer</b>. Saisissez la dose de l’étiquette du produit.</p>}
+    <div className="gpsrow"><label>La dose indiquée est…<select value={d.basis} onChange={e => setD({ ...d, basis: e.target.value as any })}><option value="ha">par hectare</option><option value="pompe">par pulvérisateur</option></select></label><label>Dose<input type="number" min="0" step="any" value={d.dose} onChange={e => setD({ ...d, dose: e.target.value })} /></label><label>Unité<select value={d.unit} onChange={e => setD({ ...d, unit: e.target.value as LiquidUnit })}><option>mL</option><option>L</option><option>g</option><option>kg</option></select></label></div>
+    <div className="gpsrow"><label>Eau par hectare (L)<input type="number" min="0" step="any" value={d.water} onChange={e => setD({ ...d, water: e.target.value })} /></label><label>Pulvérisateur (L)<select value={d.tank} onChange={e => setD({ ...d, tank: e.target.value })}>{['5', '10', '15', '16', '20'].map(x => <option key={x}>{x}</option>)}</select></label></div>
+    {r.perTankBase > 0 && <div className="farmsummary">
+      <div><span>Dans chaque pulvérisateur de {d.tank} L</span><b>{show(r.perTankBase)}{!r.solid ? ` (${r.perTankCl} cL)` : ''}</b></div>
+      <div><span>Par litre d’eau</span><b>{r.perLitreBase} {bu}</b></div>
+      <div><span>Produit total</span><b>{show(r.totalBase)}</b></div>
+      <div><span>Pulvérisateurs à remplir</span><b>{r.tanksToFill}</b></div>
+      <div><span>Eau totale</span><b>{r.waterTotal} L</b></div></div>}
+    {rule?.is_demo && rule.status !== 'validee' && <div className="notice">⚠ Dose DÉMO, non validée par le comité technique : exemple seulement.</div>}
+    <p className="muted">Respectez toujours l’étiquette du produit, le délai avant récolte et les équipements de protection.</p>
+  </div></div>;
 }
 
 // ---------- Conseils ----------
@@ -198,29 +243,34 @@ function StatusButtons({ table, row, db, isCommittee, reload, setMsg }: { table:
 
 function useCrops(db: DB) { const [c, setC] = useState<any[]>([]); useEffect(() => { db.from('crops').select('id,name').order('name').then((r: any) => setC(r.data || [])); }, []); return c; }
 
+const ruleName: Record<string, string> = { besoin_engrais: 'Besoin N-P-K', dose_pied: 'Granulé : g/pied', dose_foliaire: 'Engrais foliaire', dose_traitement: 'Pesticide/insecticide/fongicide' };
 function RulesAdmin({ db, isCommittee }: { db: DB; isCommittee: boolean }) {
   const crops = useCrops(db);
   const [rows, setRows] = useState<Rule[]>([]);
   const [msg, setMsg] = useState('');
-  const [f, setF] = useState({ type: 'besoin_engrais', crop: '', source: '', n: '', p: '', k: '', ing: '', dose: '', unit: 'kg', water: '' });
+  const [f, setF] = useState({ type: 'besoin_engrais', crop: '', source: '', n: '', p: '', k: '', ing: '', dose: '', unit: 'mL', water: '', family: 'fongicide', gpp: '', row: '', plant: '' });
   async function load() { const { data } = await db.from('agro_rules').select('*, crops(name)').order('created_at', { ascending: false }); setRows((data || []) as Rule[]); }
   useEffect(() => { load(); }, []);
   async function add(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
-    const payload = f.type === 'besoin_engrais' ? { n_kg_ha: Number(f.n), p2o5_kg_ha: Number(f.p), k2o_kg_ha: Number(f.k) } : { ingredient_name: f.ing, dose_per_ha: Number(f.dose), unit: f.unit, water_l_ha: Number(f.water) };
+    const liquid = { product_name: f.ing, dose_per_ha: Number(f.dose), unit: f.unit, water_l_ha: Number(f.water) };
+    const payload = f.type === 'besoin_engrais' ? { n_kg_ha: Number(f.n), p2o5_kg_ha: Number(f.p), k2o_kg_ha: Number(f.k) }
+      : f.type === 'dose_pied' ? { product_name: f.ing, grams_per_plant: Number(f.gpp), spacing_row_m: Number(f.row) || null, spacing_plant_m: Number(f.plant) || null }
+      : f.type === 'dose_foliaire' ? liquid : { ...liquid, ingredient_name: f.ing, family: f.family };
     const { error } = await db.from('agro_rules').insert({ rule_type: f.type, crop_id: f.crop, payload, source: f.source });
     setMsg(error ? error.message : 'Règle créée en brouillon.'); load();
   }
   return <>
     <form className="tender" onSubmit={add}><div className="tendermain">
-      <label>Type<select value={f.type} onChange={e => setF({ ...f, type: e.target.value })}><option value="besoin_engrais">Besoin en engrais</option><option value="dose_traitement">Dose de traitement</option></select></label>
+      <label>Type<select value={f.type} onChange={e => setF({ ...f, type: e.target.value })}><option value="besoin_engrais">Besoin en éléments (N-P-K kg/ha)</option><option value="dose_pied">Engrais granulé : grammage par pied</option><option value="dose_foliaire">Engrais foliaire (pulvérisateur)</option><option value="dose_traitement">Pesticide / insecticide / fongicide / herbicide</option></select></label>
       <label>Culture<select required value={f.crop} onChange={e => setF({ ...f, crop: e.target.value })}><option value="">Choisir…</option>{crops.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-      {f.type === 'besoin_engrais' ? <div className="gpsrow"><label>N kg/ha<input required type="number" value={f.n} onChange={e => setF({ ...f, n: e.target.value })} /></label><label>P₂O₅ kg/ha<input required type="number" value={f.p} onChange={e => setF({ ...f, p: e.target.value })} /></label><label>K₂O kg/ha<input required type="number" value={f.k} onChange={e => setF({ ...f, k: e.target.value })} /></label></div>
-        : <><label>Matière active / produit<input required value={f.ing} onChange={e => setF({ ...f, ing: e.target.value })} /></label><div className="gpsrow"><label>Dose/ha<input required type="number" step="any" value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label><label>Unité<select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}><option>kg</option><option>g</option><option>L</option><option>mL</option></select></label><label>Eau L/ha<input required type="number" value={f.water} onChange={e => setF({ ...f, water: e.target.value })} /></label></div></>}
+      {f.type === 'besoin_engrais' && <div className="gpsrow"><label>N kg/ha<input required type="number" value={f.n} onChange={e => setF({ ...f, n: e.target.value })} /></label><label>P₂O₅ kg/ha<input required type="number" value={f.p} onChange={e => setF({ ...f, p: e.target.value })} /></label><label>K₂O kg/ha<input required type="number" value={f.k} onChange={e => setF({ ...f, k: e.target.value })} /></label></div>}
+      {f.type === 'dose_pied' && <><label>Produit / engrais granulé<input required value={f.ing} onChange={e => setF({ ...f, ing: e.target.value })} /></label><div className="gpsrow"><label>Grammes par pied<input required type="number" step="any" value={f.gpp} onChange={e => setF({ ...f, gpp: e.target.value })} /></label><label>Entre lignes (m)<input type="number" step="any" value={f.row} onChange={e => setF({ ...f, row: e.target.value })} /></label><label>Entre pieds (m)<input type="number" step="any" value={f.plant} onChange={e => setF({ ...f, plant: e.target.value })} /></label></div></>}
+      {(f.type === 'dose_foliaire' || f.type === 'dose_traitement') && <><label>Produit / matière active<input required value={f.ing} onChange={e => setF({ ...f, ing: e.target.value })} /></label>{f.type === 'dose_traitement' && <label>Famille<select value={f.family} onChange={e => setF({ ...f, family: e.target.value })}><option value="insecticide">Insecticide</option><option value="fongicide">Fongicide</option><option value="herbicide">Herbicide</option><option value="autre">Autre</option></select></label>}<div className="gpsrow"><label>Dose par hectare<input required type="number" step="any" value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label><label>Unité<select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}><option>mL</option><option>L</option><option>g</option><option>kg</option></select></label><label>Eau L/ha<input required type="number" value={f.water} onChange={e => setF({ ...f, water: e.target.value })} /></label></div></>}
       <label>Source (obligatoire)<input required value={f.source} onChange={e => setF({ ...f, source: e.target.value })} placeholder="Ex : fiche technique, arrêté, institut…" /></label>
     </div><button className="primary">Créer en brouillon</button></form>
     {msg && <div className="notice">{msg}</div>}
-    <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id}><b>{r.crops?.name} — {r.rule_type === 'besoin_engrais' ? 'Besoin engrais' : 'Dose traitement'} v{r.version}<br /><small className="muted">{r.source}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><DemoBadge rule={r} /><StatusButtons table="agro_rules" row={r} db={db} isCommittee={isCommittee} reload={load} setMsg={setMsg} /></span></div>)}</div>
+    <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id}><b>{r.crops?.name} — {ruleName[r.rule_type]} v{r.version}<br /><small className="muted">{r.source}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><DemoBadge rule={r} /><StatusButtons table="agro_rules" row={r} db={db} isCommittee={isCommittee} reload={load} setMsg={setMsg} /></span></div>)}</div>
   </>;
 }
 

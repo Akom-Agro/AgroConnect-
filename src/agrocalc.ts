@@ -55,3 +55,43 @@ export const weekOf = (planting: string | null, today = new Date()): number | nu
   if (isNaN(d.getTime())) return null;
   return Math.floor((today.getTime() - d.getTime()) / 86400000 / 7);
 };
+
+// ---------- Engrais GRANULÉ : épandu au pied, en grammes par plant ----------
+export const plantsFromSpacing = (areaHa: number, rowM: number, plantM: number): number =>
+  rowM > 0 && plantM > 0 && areaHa > 0 ? Math.floor((areaHa * 10000) / (rowM * plantM)) : 0;
+
+// g par pied = total (kg) × 1000 / nombre de plants
+export const gramsPerPlant = (totalKg: number, plants: number): number => (plants > 0 ? Math.round((totalKg * 1000 / plants) * 10) / 10 : 0);
+
+// Règle validée « grammage par pied » : total à acheter pour N plants
+export function perPlantPlan(gPerPlant: number, plants: number) {
+  const kg = (pos(gPerPlant) * pos(plants)) / 1000;
+  return { totalKg: r1(kg), sacks50: r1(kg / 50) };
+}
+
+// ---------- Produit LIQUIDE (engrais foliaire, insecticide, fongicide, herbicide) : dans le pulvérisateur ----------
+export type LiquidUnit = 'mL' | 'L' | 'g' | 'kg';
+export type LiquidInput = { dose: number; unit: LiquidUnit; basis: 'ha' | 'pompe'; areaHa: number; waterLPerHa: number; tankL: number };
+export type LiquidResult = {
+  solid: boolean;             // g/kg → produit en poudre
+  totalBase: number;          // produit total en mL (liquide) ou g (solide)
+  perTankBase: number;        // dose à mettre dans UN pulvérisateur plein, en mL ou g
+  perTankCl: number;          // idem en cL (liquide)
+  perLitreBase: number;       // par litre d'eau
+  waterTotal: number; tanksExact: number; tanksToFill: number;
+};
+const toBase = (v: number, u: LiquidUnit) => (u === 'L' || u === 'kg' ? v * 1000 : v);
+
+export function liquidPlan(i: LiquidInput): LiquidResult {
+  const solid = i.unit === 'g' || i.unit === 'kg';
+  const area = pos(i.areaHa), tank = pos(i.tankL), wHa = pos(i.waterLPerHa);
+  const d = toBase(pos(i.dose), i.unit);
+  const waterTotal = wHa * area;
+  const tanksExact = tank > 0 ? waterTotal / tank : 0;
+  let perTank: number, total: number;
+  if (i.basis === 'pompe') { perTank = d; total = d * tanksExact; }         // dose donnée « par pulvérisateur »
+  else { total = d * area; perTank = wHa > 0 ? d * tank / wHa : 0; }        // dose donnée « par hectare »
+  const rd = (x: number) => Math.round(x * 100) / 100;
+  return { solid, totalBase: rd(total), perTankBase: rd(perTank), perTankCl: rd(perTank / 10), perLitreBase: tank > 0 ? rd(perTank / tank) : 0,
+    waterTotal: r1(waterTotal), tanksExact: rd(tanksExact), tanksToFill: Math.ceil(tanksExact - 1e-9) };
+}
