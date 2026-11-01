@@ -25,17 +25,19 @@ const DemoBadge = ({ rule }: { rule: { status: string; is_demo: boolean } }) =>
 
 // ---------- Outils d'un champ ----------
 export function FieldTools({ db, field, role, go }: { db: DB; field: any; role: string; go: (s: any) => void }) {
-  const [tab, setTab] = useState<'journal' | 'calc' | 'conseils' | 'sante'>('journal');
-  const tabs: [typeof tab, string][] = [['journal', '📒 Travaux'], ['calc', '🧮 Calculateurs'], ['conseils', '🌿 Conseils'], ['sante', '🩺 Santé']];
+  const [tab, setTab] = useState<'journal' | 'calc' | 'conseils' | 'sante' | 'equipe'>('journal');
+  const canManageTeam = role === 'producteur' || role === 'admin' || role === 'super_admin';
+  const tabs: [typeof tab, string][] = [['journal', '📒 Travaux'], ['calc', '🧮 Calculateurs'], ['conseils', '🌿 Conseils'], ['sante', '🩺 Santé'], ...(canManageTeam ? [['equipe', '👥 Équipe'] as [typeof tab, string]] : [])];
   return <section className="section">
     <div className="sectionhead"><h2>Outils du champ</h2></div>
-    <div className="sectorswitch" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-      {tabs.map(([k, l]) => <button key={k} className={tab === k ? 'selected' : ''} style={{ flex: '1 1 120px', minHeight: 44 }} onClick={() => setTab(k)}>{l}</button>)}
+    <div className="toolstabs">
+      {tabs.map(([k, l]) => <button key={k} className={tab === k ? 'selected' : ''} onClick={() => setTab(k)}>{l}</button>)}
     </div>
     {tab === 'journal' && <Journal db={db} field={field} />}
     {tab === 'calc' && <Calculators db={db} field={field} />}
     {tab === 'conseils' && <CropAdvice db={db} field={field} />}
     {tab === 'sante' && <FieldHealth db={db} field={field} role={role} go={go} />}
+    {tab === 'equipe' && canManageTeam && <TeamTab db={db} field={field} />}
   </section>;
 }
 
@@ -223,7 +225,7 @@ export function CommitteePanel({ db, isAdmin, isCommittee }: { db: DB; isAdmin: 
   const tabs: [typeof tab, string][] = [['regles', 'Règles'], ['matieres', 'Matières actives'], ['conseils', 'Conseils'], ...(isAdmin ? [['membres', 'Membres'] as [typeof tab, string]] : [])];
   return <>
     <div className="pageintro"><div><span className="eyebrow">GOUVERNANCE</span><h1>Comité technique</h1><p>Seuls les membres du comité valident. Une règle validée est figée : toute correction crée une nouvelle version.{!isCommittee && ' (Vous êtes administrateur : vous préparez, le comité valide.)'}</p></div></div>
-    <div className="sectorswitch" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'selected' : ''} style={{ flex: '1 1 110px', minHeight: 44 }} onClick={() => setTab(k)}>{l}</button>)}</div>
+    <div className="toolstabs">{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'selected' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
     {tab === 'regles' && <RulesAdmin db={db} isCommittee={isCommittee} />}
     {tab === 'matieres' && <IngredientsAdmin db={db} />}
     {tab === 'conseils' && <AdviceAdmin db={db} isCommittee={isCommittee} />}
@@ -352,4 +354,91 @@ function DemoPurge({ db }: { db: DB }) {
     setMsg(err ? err.message : 'Données DÉMO supprimées.');
   }
   return <section className="section"><div className="sectionhead"><h2>Données de démonstration</h2></div><p className="muted">Les lignes « DÉMO — non validé » sont des exemples. Supprimez-les quand le comité a saisi ses vraies règles.</p><button className="secondary" onClick={purge}>Supprimer toutes les données DÉMO</button>{msg && <div className="notice">{msg}</div>}</section>;
+}
+
+// ---------- Équipe du champ : inviter un ouvrier, lui assigner des tâches sur CE champ ----------
+const taskStatusLabel: Record<string, string> = { pending: 'À faire', in_progress: 'En cours', completed: 'Terminée', cancelled: 'Annulée' };
+const prioLabel: Record<string, string> = { low: 'Basse', normal: 'Normale', high: 'Haute', urgent: 'Urgente' };
+const taskPresets = ['Désherbage', 'Arrosage', 'Épandage d’engrais', 'Traitement phytosanitaire', 'Tuteurage / taille', 'Récolte', 'Surveillance du champ'];
+
+function TeamTab({ db, field }: { db: DB; field: any }) {
+  const [invites, setInvites] = useState<any[]>([]);
+  const [workers, setWorkers] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [inv, setInv] = useState({ name: '', phone: '' });
+  const [t, setT] = useState({ title: taskPresets[0], custom: '', desc: '', assigned: '', prio: 'normal', due: '' });
+  async function load() {
+    const [i, w, k] = await Promise.all([
+      db.from('worker_invites').select('*').eq('farm_id', field.farm_id).order('created_at', { ascending: false }),
+      db.from('workers').select('*').eq('farm_id', field.farm_id),
+      db.from('tasks').select('*').eq('field_id', field.id).order('created_at', { ascending: false }).limit(30),
+    ]);
+    setInvites(i.data || []); setWorkers(w.data || []); setTasks(k.data || []); setLoading(false);
+  }
+  useEffect(() => { load(); }, [field.id]);
+  const nameOf = (userId: string | null) => {
+    if (!userId) return 'Non assignée';
+    const i = invites.find(x => x.used_by === userId); const w = workers.find(x => x.user_id === userId);
+    return (i && (i.full_name || i.phone)) || (w && w.phone) || 'Ouvrier';
+  };
+  async function createInvite(e: React.FormEvent) {
+    e.preventDefault(); setBusy(true); setMsg('');
+    const { data: u } = await db.auth.getUser();
+    if (!u?.user) { setBusy(false); setMsg('Session expirée : reconnectez-vous.'); return; }
+    const code = Math.random().toString(36).slice(2, 6).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const { error } = await db.from('worker_invites').insert({ code, farm_id: field.farm_id, full_name: inv.name.trim() || null, phone: inv.phone.trim() || null, created_by: u.user.id });
+    setBusy(false);
+    if (error) { setMsg(error.message); return; }
+    setInv({ name: '', phone: '' }); setMsg(`Code créé : ${code}. Donnez-le à l’ouvrier : il le saisit à son inscription pour être rattaché à votre exploitation.`); load();
+  }
+  async function addTask(e: React.FormEvent) {
+    e.preventDefault(); setMsg('');
+    const title = (t.title === '__autre' ? t.custom : t.title).trim();
+    if (!title) { setMsg('Indiquez le nom de la tâche.'); return; }
+    setBusy(true);
+    const { error } = await db.from('tasks').insert({ farm_id: field.farm_id, field_id: field.id, assigned_to: t.assigned || null, title, description: t.desc.trim() || null, priority: t.prio, due_date: t.due || null });
+    setBusy(false);
+    if (error) { setMsg(error.message); return; }
+    setT({ ...t, custom: '', desc: '', due: '' }); setMsg('Tâche créée.'); load();
+  }
+  async function cancel(id: string) { const { error } = await db.from('tasks').update({ status: 'cancelled' }).eq('id', id); setMsg(error ? error.message : ''); load(); }
+  if (loading) return <div className="loading">Chargement…</div>;
+  return <>
+    <h3>Ouvriers de cette exploitation ({workers.length})</h3>
+    {workers.length ? <div className="adminlist">{workers.map(w => <div key={w.id}><b>{nameOf(w.user_id)}</b><span className="badge green">Rattaché</span></div>)}</div> : <div className="empty"><p>Aucun ouvrier rattaché pour le moment. Créez un code d’invitation ci-dessous.</p></div>}
+
+    <h3 style={{ marginTop: 16 }}>Inviter un nouvel ouvrier</h3>
+    <form className="tender" onSubmit={createInvite}><div className="tendermain">
+      <label>Nom de l’ouvrier<input value={inv.name} onChange={e => setInv({ ...inv, name: e.target.value })} placeholder="Ex : Jean Fotso" /></label>
+      <label>Téléphone<input inputMode="tel" value={inv.phone} onChange={e => setInv({ ...inv, phone: e.target.value })} placeholder="Ex : 6xx xx xx xx" /></label>
+    </div><button className="primary" disabled={busy}>Générer le code</button></form>
+    {invites.filter(i => !i.used).length > 0 && <div className="adminlist" style={{ marginTop: 10 }}>{invites.filter(i => !i.used).map(i => <div key={i.id}><b>{i.code}{i.full_name ? ` — ${i.full_name}` : ''}</b><span className="badge">En attente d’inscription</span></div>)}</div>}
+
+    <h3 style={{ marginTop: 16 }}>Assigner une tâche sur ce champ</h3>
+    <form className="tender" onSubmit={addTask}><div className="tendermain">
+      <label>Tâche<select value={t.title} onChange={e => setT({ ...t, title: e.target.value })}>{taskPresets.map(p => <option key={p}>{p}</option>)}<option value="__autre">Autre…</option></select></label>
+      {t.title === '__autre' && <label>Nom de la tâche<input required value={t.custom} onChange={e => setT({ ...t, custom: e.target.value })} /></label>}
+      <label>Assigner à<select value={t.assigned} onChange={e => setT({ ...t, assigned: e.target.value })}><option value="">— Pas encore assignée —</option>{workers.map(w => <option key={w.id} value={w.user_id}>{nameOf(w.user_id)}</option>)}</select></label>
+      <div className="gpsrow"><label>Priorité<select value={t.prio} onChange={e => setT({ ...t, prio: e.target.value })}>{Object.entries(prioLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label>Échéance<input type="date" value={t.due} onChange={e => setT({ ...t, due: e.target.value })} /></label></div>
+      <label>Consigne (facultatif)<input value={t.desc} onChange={e => setT({ ...t, desc: e.target.value })} placeholder="Ex : rangées 1 à 10, 20 g d’engrais par pied" /></label>
+    </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>＋ Créer la tâche</button></form>
+    {msg && <div className="notice">{msg}</div>}
+    {tasks.length ? <div className="adminlist" style={{ marginTop: 12 }}>{tasks.map(k => <div key={k.id}><b>{k.title}<br /><small className="muted">{nameOf(k.assigned_to)}{k.due_date ? ` • échéance ${fmt(k.due_date)}` : ''} • {prioLabel[k.priority]}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className={'badge ' + (k.status === 'completed' ? 'green' : '')}>{taskStatusLabel[k.status] || k.status}</span>{(k.status === 'pending' || k.status === 'in_progress') && <button className="secondary" onClick={() => cancel(k.id)}>Annuler</button>}</span></div>)}</div> : <div className="empty"><p>Aucune tâche sur ce champ.</p></div>}
+  </>;
+}
+
+// ---------- Étape de culture (affichage des champs) : calculée à partir de la date de plantation et du cycle de la culture ----------
+export function fieldStage(f: { planting_date: string | null; crops?: { cycle_days?: number } | null }): { label: string; tone: string; pct: number; day: number | null; total: number | null } {
+  const total = f.crops?.cycle_days ? Number(f.crops.cycle_days) : null;
+  if (!f.planting_date) return { label: 'DATE À RENSEIGNER', tone: '', pct: 0, day: null, total };
+  const day = Math.floor((Date.now() - new Date(f.planting_date + 'T00:00:00').getTime()) / 86400000);
+  if (day < 0) return { label: 'PLANTATION PRÉVUE', tone: '', pct: 0, day, total };
+  if (!total) return { label: 'EN CULTURE', tone: 'green', pct: 0, day, total };
+  const pct = Math.max(0, Math.min(100, Math.round((day / total) * 100)));
+  if (day > total) return { label: 'CYCLE ÉCOULÉ', tone: 'danger', pct: 100, day, total };
+  if (total - day <= 14) return { label: 'RÉCOLTE PROCHE', tone: 'danger', pct, day, total };
+  return { label: 'EN CROISSANCE', tone: 'green', pct, day, total };
 }
