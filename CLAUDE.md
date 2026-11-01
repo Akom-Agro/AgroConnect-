@@ -21,7 +21,11 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 
 ## En cours
 - Ma ferme (outils du champ, calculateurs granulé/liquide, comité) : build Netlify vert le 31/10 ; page Ma ferme et menu Comité vus en ligne ; test des onglets du champ à confirmer par le promoteur
-- Navigation mobile : barre du bas + menu « Plus » (livré, à confirmer)
+- Navigation mobile : barre du bas + menu « Plus » ; bouton Retour du téléphone géré (historique) ; retour au champ depuis le diagnostic (livré 1/11, à confirmer)
+- Photos obligatoires des offres du marché (3 min, 6 max) : base appliquée et testée ; interface livrée, à confirmer
+- Onglet Équipe dans le champ (inviter un ouvrier, assigner des tâches) : droits testés ; interface livrée, à confirmer
+- Design Ma ferme / champ : formulaires, étape de culture avec progression, onglets défilants (livré, à confirmer)
+- Badge « Powered by Netlify » : à désactiver dans Netlify (Project configuration > General > Powered by Netlify badge), non gérable par le code
 
 ## Sécurité base de données (31/10/2026, appliqué et vérifié)
 - Fonctions-déclencheurs : exécution publique retirée ; search_path fixé sur les 3 fonctions de parrainage ; `approve_due_referrals` réservée aux connectés (et contrôle admin interne)

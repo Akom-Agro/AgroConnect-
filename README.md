@@ -83,3 +83,9 @@ Fichier SQL : `docs/migration_ma_ferme.sql` (déjà appliqué sur la base de pro
 - Seules deux matières interdites sont chargées avec source (diméthoate, carbofuran — FAOLEX cmr160646/cmr160647) ; à reconfirmer par le comité.
 - L'API Plantix n'est PAS connectée (accès commercial requis ; Cameroun non listé). Le moteur interne est autonome ; un adaptateur pourra être ajouté plus tard, clé uniquement en secret d'Edge Function.
 - Diagnostic IA : la fonction `diagnose-image` (v3) enregistre le champ concerné, mais la clé Anthropic n'est pas encore configurée (prévue avant le lancement public).
+
+## 11. Ajouts du 1er novembre 2026
+- **Photos des offres** (`docs/migration_photos_marche.sql`, déjà appliqué) : 3 photos minimum et 6 maximum par offre, vérifié côté serveur (soumission, validation et publication refusées sinon). Les images sont réduites sur le téléphone (1280 px) puis stockées dans le bucket public `market-images`, dans un dossier au nom du vendeur.
+- **Onglet Équipe** dans chaque champ : code d'invitation lié à l'exploitation, liste des ouvriers, création et suivi des tâches par champ.
+- **Navigation** : le bouton Retour du téléphone revient à l'écran précédent ; barre du bas et menu « Plus » sur mobile.
+- **Badge Netlify** : réglage Netlify (Project configuration > General > Powered by Netlify badge), pas du code.
