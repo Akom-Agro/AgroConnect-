@@ -39,3 +39,7 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Passerelle de paiement réelle (webhook signé)
 - Sécurité : activer la protection contre les mots de passe compromis (Supabase > Authentication > Providers > Email, réglage à faire par le promoteur), revue des 5 failles principales avant la mise en ligne
 - Phase 3 : coûts/stock, élevage avancé, alertes, hors-ligne, notifications push
+
+## Hébergement (ajout)
+- En cours : hébergement gratuit alternatif sur Cloudflare (Workers + static assets) pour https://agrivia.corsonservice.com, car Netlify (équipe partagée) est à court de crédits. Fichier : wrangler.jsonc (SPA fallback). Netlify conservé en secours (netlify.toml inchangé).
+- À faire après bascule : ajouter https://agrivia.corsonservice.com dans Supabase > Authentication > URL Configuration (Site URL + Redirect URLs).
