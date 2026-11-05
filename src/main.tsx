@@ -59,10 +59,13 @@ function App(){
  const [loading,setLoading]=useState(true);
  const [error,setError]=useState('');
  const [recovery,setRecovery]=useState(false);
- const [screen,setScreen]=useState<Screen>('home');
- const [sector,setSector]=useState<Sector>('agriculture');
- const [selectedField,setSelectedField]=useState<string|null>(null);
- const [selectedHerd,setSelectedHerd]=useState<string|null>(null);
+ // Navigation mémorisée : sur Android, l'appli Appareil photo peut recharger la page ; on revient alors au même écran et au même champ.
+ const savedNav=useMemo<any>(()=>{try{const raw=sessionStorage.getItem('duly_nav');return raw?JSON.parse(raw):{}}catch{return {}}},[]);
+ const [screen,setScreen]=useState<Screen>(()=>(typeof savedNav.screen==='string'?savedNav.screen:'home') as Screen);
+ const [sector,setSector]=useState<Sector>(savedNav.sector==='elevage'?'elevage':'agriculture');
+ const [selectedField,setSelectedField]=useState<string|null>(typeof savedNav.field==='string'?savedNav.field:null);
+ const [selectedHerd,setSelectedHerd]=useState<string|null>(typeof savedNav.herd==='string'?savedNav.herd:null);
+ useEffect(()=>{try{sessionStorage.setItem('duly_nav',JSON.stringify({screen,sector,field:selectedField,herd:selectedHerd}))}catch{}},[screen,sector,selectedField,selectedHerd]);
  const [toast,setToast]=useState('');
  // Portail Super Administrateur : accessible uniquement via ?admin, jamais depuis le parcours public.
  const adminMode=useMemo(()=>new URLSearchParams(window.location.search).has('admin'),[]);
@@ -83,7 +86,7 @@ function App(){
    if(error){setError(error.message);setLoading(false);return;}
    setProfile(data as Profile);setLoading(false);
  }
- async function signOut(){await supabase?.auth.signOut();setScreen('home');}
+ async function signOut(){await supabase?.auth.signOut();setScreen('home');setSelectedField(null);setSelectedHerd(null);try{sessionStorage.removeItem('duly_nav')}catch{}}
  // Change de secteur : on quitte tout écran qui n'a de sens que dans l'autre secteur.
  function changeSector(s:Sector){setSector(s);setScreen(cur=>sectorOnlyScreens.includes(cur)?'home':cur)}
  if(!supabase) return <ConfigScreen/>;
