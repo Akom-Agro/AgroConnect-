@@ -40,6 +40,8 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Sécurité : activer la protection contre les mots de passe compromis (Supabase > Authentication > Providers > Email, réglage à faire par le promoteur), revue des 5 failles principales avant la mise en ligne
 - Phase 3 : coûts/stock, élevage avancé, alertes, hors-ligne, notifications push
 
-## Hébergement (ajout)
-- En cours : hébergement gratuit alternatif sur Cloudflare (Workers + static assets) pour https://agrivia.corsonservice.com, car Netlify (équipe partagée) est à court de crédits. Fichier : wrangler.jsonc (SPA fallback). Netlify conservé en secours (netlify.toml inchangé).
-- À faire après bascule : ajouter https://agrivia.corsonservice.com dans Supabase > Authentication > URL Configuration (Site URL + Redirect URLs).
+## Hébergement (mis à jour le 05/11/2026)
+- Validée : site en ligne sur Cloudflare (Workers + static assets, gratuit), Worker `dulyagrivia`, branche main de GitHub (mise en ligne automatique à chaque modification), domaine https://agrivia.corsonservices.com avec HTTPS. wrangler.jsonc à la racine. Variables de build VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY définies dans Cloudflare.
+- Netlify (dulyagrivia.netlify.app) : conservé en secours, crédits de l'équipe épuisés (équipe partagée avec Dorelle Stevia), plus de nouveaux déploiements.
+- Vitrine Corson Services : page /corson du projet Vercel agent-ao-express (fichier web/app/corson/page.tsx) ; lien Agrivia mis à jour vers agrivia.corsonservices.com (validée).
+- À faire : Supabase > Authentication > URL Configuration : Site URL = https://agrivia.corsonservices.com et Redirect URLs avec /** (à confirmer) ; supprimer l'ancien Worker `dulyahrovia` (nom erroné) ; changer les mots de passe provisoires des 2 comptes.
