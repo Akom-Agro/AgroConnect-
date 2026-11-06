@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createClient, type Session, type User } from '@supabase/supabase-js';
 import './styles.css';
 import { FieldTools, CommitteePanel, fieldStage } from './farmtools';
-import { MIN_PHOTOS, MAX_PHOTOS, photoUrl, uploadListingPhotos, loadPhotosByListing } from './photos';
+import { MIN_PHOTOS, MAX_PHOTOS, photoUrl, uploadListingPhotos, loadPhotosByListing, compressImage } from './photos';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -489,11 +489,11 @@ function AI({sector,profile,onBack}:{sector:Sector;profile:Profile;onBack?:()=>v
  const [linkedField]=useState<string|null>(()=>{try{return sessionStorage.getItem('duly_ai_field')}catch{return null}});
  async function loadHistory(){if(!supabase)return;setLoadingHistory(true);const {data}=await supabase.from('ai_diagnoses').select('*').eq('sector',sector).order('created_at',{ascending:false}).limit(10);setHistory((data||[]) as Diagnosis[]);setLoadingHistory(false)}
  useEffect(()=>{loadHistory();setResult(null);setPreview(null);setFile(null);setError('')},[sector]);
- function onPick(e:React.ChangeEvent<HTMLInputElement>){const f=e.target.files?.[0];if(!f)return;setFile(f);setResult(null);setError('');const reader=new FileReader();reader.onload=()=>setPreview(reader.result as string);reader.readAsDataURL(f)}
+ function onPick(e:React.ChangeEvent<HTMLInputElement>){const f=e.target.files?.[0];e.target.value='';if(!f)return;setFile(f);setResult(null);setError('');setPreview(prev=>{if(prev&&prev.startsWith('blob:')){try{URL.revokeObjectURL(prev)}catch{}}try{return URL.createObjectURL(f)}catch{return null}})}
  async function analyser(){
   if(!supabase||!file)return;setBusy(true);setError('');setResult(null);
   try{
-   const {data:imgData,mediaType}=await fileToBase64(file);
+   const small=new File([await compressImage(file,1280,0.82)],'photo.jpg',{type:'image/jpeg'});const {data:imgData,mediaType}=await fileToBase64(small);
    const {data,error:fnError}=await supabase.functions.invoke('diagnose-image',{body:{imageBase64:imgData,mediaType,sector,note:note||undefined,field_id:linkedField||undefined}});
    if(fnError){setError('Le service d’analyse n’est pas joignable pour le moment.');setBusy(false);return}
    if(data?.error==='not_configured'){setError('Le diagnostic IA n’est pas encore activé sur le serveur (clé API en attente de configuration).');setBusy(false);return}
@@ -505,7 +505,7 @@ function AI({sector,profile,onBack}:{sector:Sector;profile:Profile;onBack?:()=>v
  return <>{linkedField&&onBack&&<button className="back" onClick={onBack}>← Retour au champ</button>}<div className="pageintro"><div><span className="eyebrow">{isAgri?'ASSISTANT AGRICOLE':'ASSISTANT VÉTÉRINAIRE'}</span><h1>{isAgri?<>AgroDoctor <em>IA</em></>:<>VétoDoctor <em>IA</em></>}</h1><p>Prenez une photo {isAgri?'de la plante concernée':'de l’animal concerné'} pour une estimation indicative. Ceci ne remplace jamais {isAgri?'un agronome':'un vétérinaire'} en cas de doute sérieux.</p></div></div>
   <div className="aiupload">
    {preview?<img src={preview} alt="aperçu" style={{maxWidth:'100%',borderRadius:12,marginBottom:12}}/>:<div className="aiorb">✦</div>}
-   <label className="secondary" style={{display:'inline-block',cursor:'pointer'}}>📷 {file?'Changer la photo':'Prendre / choisir une photo'}<input type="file" accept="image/*" capture="environment" onChange={onPick} style={{display:'none'}}/></label>
+   <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}><label className="secondary" style={{display:'inline-block',cursor:'pointer'}}>📷 {file?'Reprendre une photo':'Prendre une photo'}<input type="file" accept="image/*" capture="environment" onChange={onPick} style={{display:'none'}}/></label><label className="secondary" style={{display:'inline-block',cursor:'pointer'}}>🖼️ Choisir dans la galerie<input type="file" accept="image/*" onChange={onPick} style={{display:'none'}}/></label></div>
    {file&&<><label style={{marginTop:10}}>Remarque (optionnel)<input value={note} onChange={e=>setNote(e.target.value)} placeholder="Ex : taches depuis 3 jours, feuilles jaunes…"/></label>
    <button className="primary wide" style={{marginTop:10}} disabled={busy} onClick={analyser}>{busy?'Analyse en cours…':'Analyser cette photo'}</button></>}
    {error&&<div className="notice">{error}</div>}
