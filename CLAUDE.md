@@ -45,3 +45,12 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Netlify (dulyagrivia.netlify.app) : conservé en secours, crédits de l'équipe épuisés (équipe partagée avec Dorelle Stevia), plus de nouveaux déploiements.
 - Vitrine Corson Services : page /corson du projet Vercel agent-ao-express (fichier web/app/corson/page.tsx) ; lien Agrivia mis à jour vers agrivia.corsonservices.com (validée).
 - À faire : Supabase > Authentication > URL Configuration : Site URL = https://agrivia.corsonservices.com et Redirect URLs avec /** (à confirmer) ; supprimer l'ancien Worker `dulyahrovia` (nom erroné) ; changer les mots de passe provisoires des 2 comptes.
+
+
+## État au 07/11/2026
+- Hébergement : Supabase Auth URL configurées (Validée).
+- Ma ferme tests 1–6 : OK. Tests 7 (Équipe), 8 (offres 3 photos), 9 (Comité) : À faire.
+- Navigation conservée après actualisation + caméra/galerie + compression photo (main.tsx) : En cours (à confirmer après envoi).
+- Catalogue engrais du commerce (table fertilizer_products + bucket product-labels, migration docs/migration_catalogue_engrais.sql, appliquée) : En cours. Analyses de départ NON vérifiées (à confirmer sur les sacs).
+- Calculateur « Engrais du commerce » (sacs, passages, g/pied) + onglet admin « Engrais » (farmtools.tsx, agrocalc.ts) : En cours (à tester).
+- À faire : SMTP Brevo, supprimer Worker dulyahrovia, changer mot de passe temporaire, fiches liquides/foliaires, clé Anthropic, refonte visuelle, revue top 5 vulnérabilités.
