@@ -95,3 +95,101 @@ export function liquidPlan(i: LiquidInput): LiquidResult {
   return { solid, totalBase: rd(total), perTankBase: rd(perTank), perTankCl: rd(perTank / 10), perLitreBase: tank > 0 ? rd(perTank / tank) : 0,
     waterTotal: r1(waterTotal), tanksExact: rd(tanksExact), tanksToFill: Math.ceil(tanksExact - 1e-9) };
 }
+
+// ---------- Engrais DU COMMERCE : sacs réels (analyse N-P2O5-K2O du fabricant), nombre de sacs et de passages ----------
+// Aucune valeur agronomique ici : le besoin (kg/ha) vient d'agro_rules, les analyses viennent du catalogue.
+export type ShopProduct = { id: string; name: string; n: number; p2o5: number; k2o: number; bagKg: number; verified?: boolean };
+export type ShopLine = { productId: string; name: string; kg: number; bags: number; bagsRounded: number; bagKg: number; verified: boolean; passes: number[] };
+export type ShopPlan = {
+  lines: ShopLine[];
+  supplied: { n: number; p2o5: number; k2o: number };
+  need: { n: number; p2o5: number; k2o: number };
+  missing: { n: number; p2o5: number; k2o: number };   // besoin non couvert (kg d'élément)
+  excess: { n: number; p2o5: number; k2o: number };    // surplus (kg d'élément)
+  totalKg: number;
+  score: number;
+};
+type Rem = { n: number; p: number; k: number };
+const EPS = 1e-6;
+const r2 = (x: number) => Math.round(x * 100) / 100;
+const valid = (p: ShopProduct) => p.bagKg > 0 && p.n >= 0 && p.p2o5 >= 0 && p.k2o >= 0 && p.n + p.p2o5 + p.k2o > 0 && p.n + p.p2o5 + p.k2o <= 100;
+
+function applyQty(qty: Map<string, number>, rem: Rem, p: ShopProduct, kg: number) {
+  if (!(kg > EPS)) return;
+  qty.set(p.id, (qty.get(p.id) || 0) + kg);
+  rem.n -= kg * p.n / 100; rem.p -= kg * p.p2o5 / 100; rem.k -= kg * p.k2o / 100;
+}
+
+function buildPlan(need: { n: number; p: number; k: number }, products: ShopProduct[], base: ShopProduct | null, passes: number): ShopPlan {
+  const rem: Rem = { ...need };
+  const qty = new Map<string, number>();
+  if (base) {
+    const ratios: number[] = [];
+    if (base.n > 0 && need.n > 0) ratios.push(need.n / (base.n / 100));
+    if (base.p2o5 > 0 && need.p > 0) ratios.push(need.p / (base.p2o5 / 100));
+    if (base.k2o > 0 && need.k > 0) ratios.push(need.k / (base.k2o / 100));
+    if (ratios.length) applyQty(qty, rem, base, Math.min(...ratios));
+  }
+  const order: ('p' | 'k' | 'n')[] = ['p', 'k', 'n'];
+  for (let it = 0; it < 8; it++) {
+    let progressed = false;
+    for (const el of order) {
+      if (rem[el] <= EPS) continue;
+      const pct = (p: ShopProduct) => (el === 'p' ? p.p2o5 : el === 'k' ? p.k2o : p.n);
+      let best: { p: ShopProduct; use: number } | null = null;
+      for (const c of products) {
+        if (pct(c) <= 0) continue;
+        const full = rem[el] / (pct(c) / 100);
+        let cap = full;
+        // ne pas dépasser le besoin des AUTRES éléments contenus dans ce produit
+        for (const o of ['n', 'p', 'k'] as const) {
+          if (o === el) continue;
+          const po = o === 'n' ? c.n : o === 'p' ? c.p2o5 : c.k2o;
+          if (po > 0) cap = Math.min(cap, Math.max(0, rem[o]) / (po / 100));
+        }
+        const use = Math.min(full, cap);
+        if (use <= EPS) continue;
+        const purity = pct(c) / (c.n + c.p2o5 + c.k2o);
+        if (!best || use * pct(c) > best.use * pct(best.p) + EPS || (Math.abs(use * pct(c) - best.use * pct(best.p)) <= EPS && purity > pct(best.p) / (best.p.n + best.p.p2o5 + best.p.k2o))) best = { p: c, use };
+      }
+      if (best) { applyQty(qty, rem, best.p, best.use); progressed = true; }
+    }
+    if (!progressed) break;
+  }
+  const sup = { n: 0, p2o5: 0, k2o: 0 };
+  const lines: ShopLine[] = [];
+  const np = Math.max(1, Math.floor(passes) || 1);
+  for (const p of products) {
+    const kg = qty.get(p.id);
+    if (!kg || kg <= EPS) continue;
+    sup.n += kg * p.n / 100; sup.p2o5 += kg * p.p2o5 / 100; sup.k2o += kg * p.k2o / 100;
+    // le phosphore se met au fond (1er passage) ; le reste se répartit également sur les passages
+    const passList = p.p2o5 > 0 ? [1] : Array.from({ length: np }, (_, i) => i + 1);
+    lines.push({ productId: p.id, name: p.name, kg: r1(kg), bags: r1(kg / p.bagKg), bagsRounded: Math.ceil(kg / p.bagKg - 1e-9), bagKg: p.bagKg, verified: !!p.verified, passes: passList });
+  }
+  const missing = { n: r1(Math.max(0, need.n - sup.n)), p2o5: r1(Math.max(0, need.p - sup.p2o5)), k2o: r1(Math.max(0, need.k - sup.k2o)) };
+  const excess = { n: r1(Math.max(0, sup.n - need.n)), p2o5: r1(Math.max(0, sup.p2o5 - need.p)), k2o: r1(Math.max(0, sup.k2o - need.k)) };
+  const totalKg = r1(lines.reduce((s, l) => s + l.kg, 0));
+  const score = (missing.n + missing.p2o5 + missing.k2o) * 10 + (excess.n + excess.p2o5 + excess.k2o) * 2 + totalKg * 0.01;
+  return { lines, supplied: { n: r1(sup.n), p2o5: r1(sup.p2o5), k2o: r1(sup.k2o) }, need: { n: r1(need.n), p2o5: r1(need.p), k2o: r1(need.k) }, missing, excess, totalKg, score };
+}
+
+// Propose jusqu'à 3 combinaisons avec les produits cochés (les meilleures d'abord).
+export function shopPlans(need: FertNeed, areaHa: number, products: ShopProduct[], passes: number): ShopPlan[] {
+  const area = pos(areaHa);
+  const nd = { n: pos(need.n_kg_ha) * area, p: pos(need.p2o5_kg_ha) * area, k: pos(need.k2o_kg_ha) * area };
+  const list = products.filter(valid);
+  if (!list.length || nd.n + nd.p + nd.k <= 0) return [];
+  const cands: (ShopProduct | null)[] = [null, ...list.filter(p => [p.n, p.p2o5, p.k2o].filter(x => x > 0).length >= 2)];
+  const plans = cands.map(b => buildPlan(nd, list, b, passes)).filter(p => p.lines.length > 0);
+  plans.sort((a, b) => a.score - b.score);
+  const seen = new Set<string>(); const out: ShopPlan[] = [];
+  for (const p of plans) { const key = p.lines.map(l => `${l.productId}:${l.kg}`).sort().join('|'); if (!seen.has(key)) { seen.add(key); out.push(p); } if (out.length >= 3) break; }
+  return out;
+}
+
+// Quantité d'une ligne pour UN passage (kg, sacs, g par pied)
+export function perPass(line: ShopLine, plants: number) {
+  const kg = line.kg / line.passes.length;
+  return { kg: r1(kg), bags: r2(kg / line.bagKg), gPerPlant: gramsPerPlant(kg, plants) };
+}
