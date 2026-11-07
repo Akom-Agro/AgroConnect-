@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { fertilizerPlan, perPlantPlan, plantsFromSpacing, gramsPerPlant, liquidPlan, weekOf, type FertNeed, type Compound, type LiquidUnit } from './agrocalc';
+import { compressImage } from './photos';
+import { shopPlans, perPass, type ShopProduct, fertilizerPlan, perPlantPlan, plantsFromSpacing, gramsPerPlant, liquidPlan, weekOf, type FertNeed, type Compound, type LiquidUnit } from './agrocalc';
 
 // Outils « Ma ferme » : journal des travaux, calculateurs, conseils par étape, santé liée au champ,
 // panneau comité. Module AJOUTÉ à l'existant : aucune écriture ici ne contourne les règles serveur
@@ -102,17 +103,18 @@ function pickRule(rules: Rule[], type: string, family?: string): Rule | null {
 function Calculators({ db, field }: { db: DB; field: any }) {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<'granule' | 'liquide'>('granule');
+  const [mode, setMode] = useState<'granule' | 'commerce' | 'liquide'>('granule');
   const [area, setArea] = useState(String(field.area_ha || ''));
   useEffect(() => { (async () => { if (!field.crop_id) { setLoading(false); return; } const { data } = await db.from('agro_rules').select('*').eq('crop_id', field.crop_id).neq('status', 'suspendue'); setRules((data || []) as Rule[]); setLoading(false); })(); }, [field.id]);
   if (loading) return <div className="loading">Chargement…</div>;
   return <>
     <div className="quick" style={{ marginBottom: 10 }}>
       <Quick label="🌾 Engrais granulé (au pied)" on={mode === 'granule'} onClick={() => setMode('granule')} />
+      <Quick label="🛒 Engrais du commerce (sacs)" on={mode === 'commerce'} onClick={() => setMode('commerce')} />
       <Quick label="💧 Liquide (pulvérisateur)" on={mode === 'liquide'} onClick={() => setMode('liquide')} />
     </div>
     <label>Surface du champ (ha)<input type="number" min="0" step="any" value={area} onChange={e => setArea(e.target.value)} /></label>
-    {mode === 'granule' ? <GranuleCalc field={field} rules={rules} area={Number(area) || 0} /> : <LiquidCalc field={field} rules={rules} area={Number(area) || 0} />}
+    {mode === 'granule' ? <GranuleCalc field={field} rules={rules} area={Number(area) || 0} /> : mode === 'commerce' ? <ShopCalc db={db} field={field} rules={rules} area={Number(area) || 0} /> : <LiquidCalc field={field} rules={rules} area={Number(area) || 0} />}
   </>;
 }
 
@@ -221,13 +223,14 @@ function FieldHealth({ db, field, go }: { db: DB; field: any; role: string; go: 
 
 // ---------- Panneau comité technique ----------
 export function CommitteePanel({ db, isAdmin, isCommittee }: { db: DB; isAdmin: boolean; isCommittee: boolean }) {
-  const [tab, setTab] = useState<'regles' | 'matieres' | 'conseils' | 'membres'>('regles');
-  const tabs: [typeof tab, string][] = [['regles', 'Règles'], ['matieres', 'Matières actives'], ['conseils', 'Conseils'], ...(isAdmin ? [['membres', 'Membres'] as [typeof tab, string]] : [])];
+  const [tab, setTab] = useState<'regles' | 'matieres' | 'engrais' | 'conseils' | 'membres'>('regles');
+  const tabs: [typeof tab, string][] = [['regles', 'Règles'], ['matieres', 'Matières actives'], ['engrais', 'Engrais'], ['conseils', 'Conseils'], ...(isAdmin ? [['membres', 'Membres'] as [typeof tab, string]] : [])];
   return <>
     <div className="pageintro"><div><span className="eyebrow">GOUVERNANCE</span><h1>Comité technique</h1><p>Seuls les membres du comité valident. Une règle validée est figée : toute correction crée une nouvelle version.{!isCommittee && ' (Vous êtes administrateur : vous préparez, le comité valide.)'}</p></div></div>
     <div className="toolstabs">{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'selected' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
     {tab === 'regles' && <RulesAdmin db={db} isCommittee={isCommittee} />}
     {tab === 'matieres' && <IngredientsAdmin db={db} />}
+    {tab === 'engrais' && <FertilizerAdmin db={db} isAdmin={isAdmin} />}
     {tab === 'conseils' && <AdviceAdmin db={db} isCommittee={isCommittee} />}
     {tab === 'membres' && isAdmin && <MembersAdmin db={db} />}
     <DemoPurge db={db} />
@@ -273,6 +276,108 @@ function RulesAdmin({ db, isCommittee }: { db: DB; isCommittee: boolean }) {
     </div><button className="primary">Créer en brouillon</button></form>
     {msg && <div className="notice">{msg}</div>}
     <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id}><b>{r.crops?.name} — {ruleName[r.rule_type]} v{r.version}<br /><small className="muted">{r.source}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><DemoBadge rule={r} /><StatusButtons table="agro_rules" row={r} db={db} isCommittee={isCommittee} reload={load} setMsg={setMsg} /></span></div>)}</div>
+  </>;
+}
+
+
+// ---------- Engrais du commerce : calcul en sacs réels ----------
+type FertProduct = { id: string; name: string; brand: string | null; n_pct: number; p2o5_pct: number; k2o_pct: number; bag_kg: number; verified: boolean; source: string | null; notes: string | null; label_photos: string[]; active: boolean };
+const fmtAnalysis = (p: { n_pct: number; p2o5_pct: number; k2o_pct: number }) => `${Number(p.n_pct)}-${Number(p.p2o5_pct)}-${Number(p.k2o_pct)}`;
+
+function ShopCalc({ db, field, rules, area }: { db: DB; field: any; rules: Rule[]; area: number }) {
+  const [products, setProducts] = useState<FertProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [passes, setPasses] = useState('3');
+  const [sp, setSp] = useState({ row: '', plant: '' });
+  const [manual, setManual] = useState({ n: '', p: '', k: '' });
+  const fRule = pickRule(rules, 'besoin_engrais');
+  const pRule = pickRule(rules, 'dose_pied');
+  useEffect(() => { (async () => { const { data } = await db.from('fertilizer_products').select('*').eq('active', true).order('name'); const list = ((data || []) as any[]).map(x => ({ ...x, n_pct: Number(x.n_pct), p2o5_pct: Number(x.p2o5_pct), k2o_pct: Number(x.k2o_pct), bag_kg: Number(x.bag_kg), label_photos: x.label_photos || [] })) as FertProduct[]; setProducts(list); setLoading(false); })(); }, []);
+  useEffect(() => { if (pRule) setSp(s => ({ row: s.row || String(pRule.payload.spacing_row_m ?? ''), plant: s.plant || String(pRule.payload.spacing_plant_m ?? '') })); }, [pRule?.id]);
+  const manualOn = !fRule && (manual.n || manual.p || manual.k);
+  const need: FertNeed | null = fRule ? fRule.payload : manualOn ? { n_kg_ha: Number(manual.n) || 0, p2o5_kg_ha: Number(manual.p) || 0, k2o_kg_ha: Number(manual.k) || 0 } : null;
+  const chosen: ShopProduct[] = products.filter(p => picked[p.id]).map(p => ({ id: p.id, name: p.name, n: p.n_pct, p2o5: p.p2o5_pct, k2o: p.k2o_pct, bagKg: p.bag_kg, verified: p.verified }));
+  const np = Math.min(12, Math.max(1, Math.floor(Number(passes)) || 1));
+  const plans = need && area > 0 && chosen.length ? shopPlans(need, area, chosen, np) : [];
+  const plants = plantsFromSpacing(area, Number(sp.row) || 0, Number(sp.plant) || 0);
+  if (loading) return <div className="loading">Chargement…</div>;
+  return <div className="tender" style={{ marginTop: 12 }}><div className="tendermain">
+    <h3>Engrais du commerce — {field.crops?.name || 'culture'}</h3>
+    <p className="muted">Cochez les engrais que vous trouvez chez vous. Le calcul donne le nombre de sacs et la dose par passage.</p>
+    {products.length ? <div className="adminlist">{products.map(p => <div key={p.id}><label style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={!!picked[p.id]} onChange={e => setPicked({ ...picked, [p.id]: e.target.checked })} /> <b>{p.name}{p.brand ? ` (${p.brand})` : ''}</b></label><span className={'badge ' + (p.verified ? 'green' : '')}>{fmtAnalysis(p)} • sac {p.bag_kg} kg{p.verified ? '' : ' • à vérifier'}</span></div>)}</div> : <p className="muted">Aucun engrais dans le catalogue pour l’instant.</p>}
+    <h3 style={{ marginTop: 14 }}>Besoin de la culture (kg/ha)</h3>
+    {fRule ? <p><DemoBadge rule={fRule} /> N {fRule.payload.n_kg_ha} • P₂O₅ {fRule.payload.p2o5_kg_ha} • K₂O {fRule.payload.k2o_kg_ha} <span className="muted">({fRule.source})</span></p>
+      : <><p className="muted">Aucune règle validée : saisie manuelle possible (résultat non validé).</p><div className="gpsrow"><label>N<input type="number" min="0" value={manual.n} onChange={e => setManual({ ...manual, n: e.target.value })} /></label><label>P₂O₅<input type="number" min="0" value={manual.p} onChange={e => setManual({ ...manual, p: e.target.value })} /></label><label>K₂O<input type="number" min="0" value={manual.k} onChange={e => setManual({ ...manual, k: e.target.value })} /></label></div></>}
+    <div className="gpsrow"><label>Nombre de passages<input type="number" min="1" max="12" value={passes} onChange={e => setPasses(e.target.value)} /></label><label>Entre lignes (m)<input type="number" min="0" step="any" value={sp.row} onChange={e => setSp({ ...sp, row: e.target.value })} /></label><label>Entre pieds (m)<input type="number" min="0" step="any" value={sp.plant} onChange={e => setSp({ ...sp, plant: e.target.value })} /></label></div>
+    {!need && <p className="muted">Pas de besoin connu pour cette culture : saisissez-le ci-dessus ou attendez la règle du comité.</p>}
+    {need && chosen.length === 0 && <p className="muted">Cochez au moins un engrais.</p>}
+    {need && chosen.length > 0 && area > 0 && plans.length === 0 && <div className="notice">Avec ces produits, aucun calcul possible (il manque par exemple un engrais azoté, phosphaté ou potassique). Cochez-en d’autres.</div>}
+    {plans.map((pl, i) => <div key={i} style={{ marginTop: 12 }}>
+      <h3>{i === 0 ? 'Meilleure combinaison' : `Autre combinaison ${i + 1}`} — {pl.totalKg} kg au total</h3>
+      <div className="adminlist">{pl.lines.map(l => { const pp = perPass(l, plants); return <div key={l.productId}><b>{l.name}{l.verified ? '' : ' ⚠'}<br /><small className="muted">{l.kg} kg • {l.bags} sac(s) de {l.bagKg} kg → acheter {l.bagsRounded}</small><br /><small className="muted">{l.passes.length === 1 ? 'En 1 passage (fond)' : `${l.passes.length} passages de ${pp.kg} kg`}{plants ? ` • ${pp.gPerPlant} g/pied/passage` : ''}</small></b><span className="badge green">{l.bagsRounded} sac(s)</span></div>; })}</div>
+      <p className="muted">Apport : N {pl.supplied.n} • P₂O₅ {pl.supplied.p2o5} • K₂O {pl.supplied.k2o} kg (besoin : N {pl.need.n} • P₂O₅ {pl.need.p2o5} • K₂O {pl.need.k2o}).{(pl.missing.n + pl.missing.p2o5 + pl.missing.k2o) > 0 ? ` Non couvert : N ${pl.missing.n} • P₂O₅ ${pl.missing.p2o5} • K₂O ${pl.missing.k2o}.` : ''}{(pl.excess.n + pl.excess.p2o5 + pl.excess.k2o) > 0 ? ` Surplus : N ${pl.excess.n} • P₂O₅ ${pl.excess.p2o5} • K₂O ${pl.excess.k2o}.` : ''}</p>
+    </div>)}
+    {plans.length > 0 && <div className="notice">Le phosphore est placé au fond (1er passage), le reste est réparti également sur les passages : répartition indicative, à adapter selon les conseils du comité. Les produits marqués ⚠ ont une analyse non vérifiée : lisez l’étiquette du sac.</div>}
+    {((fRule?.is_demo && fRule.status !== 'validee') || manualOn) && <div className="notice">⚠ Besoins non validés par le comité technique : exemple, pas une recommandation.</div>}
+  </div></div>;
+}
+
+// ---------- Catalogue des engrais (administrateur) ----------
+function FertilizerAdmin({ db, isAdmin }: { db: DB; isAdmin: boolean }) {
+  const [rows, setRows] = useState<FertProduct[]>([]);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const empty = { id: '', name: '', brand: '', n: '', p: '', k: '', bag: '50', verified: false, source: '', notes: '' };
+  const [f, setF] = useState(empty);
+  const [files, setFiles] = useState<File[]>([]);
+  async function load() { const { data } = await db.from('fertilizer_products').select('*').order('name'); setRows(((data || []) as any[]).map(x => ({ ...x, n_pct: Number(x.n_pct), p2o5_pct: Number(x.p2o5_pct), k2o_pct: Number(x.k2o_pct), bag_kg: Number(x.bag_kg), label_photos: x.label_photos || [] })) as FertProduct[]); }
+  useEffect(() => { load(); }, []);
+  if (!isAdmin) return <div className="empty"><p>Seul l’administrateur gère le catalogue des engrais.</p></div>;
+  const n = Number(f.n) || 0, p = Number(f.p) || 0, k = Number(f.k) || 0, bag = Number(f.bag) || 0;
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    if (n < 0 || p < 0 || k < 0 || n + p + k <= 0 || n + p + k > 100) { setMsg('Analyse invalide : la somme N + P₂O₅ + K₂O doit être entre 1 et 100 %.'); return; }
+    if (bag <= 0 || bag > 1000) { setMsg('Poids du sac invalide.'); return; }
+    if (files.length > 3) { setMsg('3 photos maximum.'); return; }
+    setBusy(true); setMsg('');
+    try {
+      const existing = rows.find(r => r.id === f.id);
+      const photos: string[] = [...(existing?.label_photos || [])];
+      for (const file of files) {
+        if (photos.length >= 3) break;
+        const blob = await compressImage(file, 1280, 0.82);
+        const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+        const up = await db.storage.from('product-labels').upload(path, blob, { contentType: 'image/jpeg' });
+        if (up.error) throw new Error(up.error.message);
+        photos.push(path);
+      }
+      const payload = { name: f.name.trim(), brand: f.brand.trim() || null, n_pct: n, p2o5_pct: p, k2o_pct: k, bag_kg: bag, verified: f.verified, source: f.source.trim() || null, notes: f.notes.trim() || null, label_photos: photos };
+      const { error } = f.id ? await db.from('fertilizer_products').update(payload).eq('id', f.id) : await db.from('fertilizer_products').insert(payload);
+      setMsg(error ? error.message : f.id ? 'Engrais modifié.' : 'Engrais ajouté.');
+      if (!error) { setF(empty); setFiles([]); }
+      load();
+    } catch (err: any) { setMsg(err?.message || 'Erreur'); }
+    setBusy(false);
+  }
+  async function toggle(r: FertProduct) { const { error } = await db.from('fertilizer_products').update({ active: !r.active }).eq('id', r.id); setMsg(error ? error.message : r.active ? 'Engrais masqué.' : 'Engrais réactivé.'); load(); }
+  function edit(r: FertProduct) { setF({ id: r.id, name: r.name, brand: r.brand || '', n: String(r.n_pct), p: String(r.p2o5_pct), k: String(r.k2o_pct), bag: String(r.bag_kg), verified: r.verified, source: r.source || '', notes: r.notes || '' }); setFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  return <>
+    <form className="tender" onSubmit={save}><div className="tendermain">
+      <h3>{f.id ? 'Modifier un engrais' : 'Ajouter un engrais du commerce'}</h3>
+      <p className="muted">Recopiez l’analyse imprimée sur le sac (ex. 20-10-10 = N 20 %, P₂O₅ 10 %, K₂O 10 %). Le comité n’a pas à l’homologuer : c’est la donnée du fabricant.</p>
+      <label>Nom<input required maxLength={100} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></label>
+      <label>Marque / fournisseur (facultatif)<input maxLength={100} value={f.brand} onChange={e => setF({ ...f, brand: e.target.value })} /></label>
+      <div className="gpsrow"><label>% N<input type="number" min="0" max="100" step="any" value={f.n} onChange={e => setF({ ...f, n: e.target.value })} /></label><label>% P₂O₅<input type="number" min="0" max="100" step="any" value={f.p} onChange={e => setF({ ...f, p: e.target.value })} /></label><label>% K₂O<input type="number" min="0" max="100" step="any" value={f.k} onChange={e => setF({ ...f, k: e.target.value })} /></label><label>Sac (kg)<input type="number" min="1" max="1000" step="any" value={f.bag} onChange={e => setF({ ...f, bag: e.target.value })} /></label></div>
+      <label style={{ flexDirection: 'row', gap: 8 }}><input type="checkbox" checked={f.verified} onChange={e => setF({ ...f, verified: e.target.checked })} /> Analyse vérifiée sur l’étiquette du sac</label>
+      <label>Source (facultatif)<input maxLength={300} value={f.source} onChange={e => setF({ ...f, source: e.target.value })} /></label>
+      <label>Notes (facultatif)<input maxLength={1000} value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></label>
+      <label>Photos de l’étiquette (1 à 3)<input type="file" accept="image/*" multiple onChange={e => setFiles(Array.from(e.target.files || []).slice(0, 3))} /></label>
+      {files.length > 0 && <p className="muted">{files.length} photo(s) choisie(s).</p>}
+    </div><button className="primary" disabled={busy}>{busy ? 'Enregistrement…' : f.id ? 'Enregistrer les modifications' : 'Ajouter'}</button>{f.id && <button type="button" onClick={() => { setF(empty); setFiles([]); }}>Annuler</button>}</form>
+    {msg && <div className="notice">{msg}</div>}
+    <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id} style={r.active ? undefined : { opacity: .55 }}><b>{r.name}{r.brand ? ` (${r.brand})` : ''}<br /><small className="muted">{fmtAnalysis(r)} • sac {r.bag_kg} kg • {r.verified ? 'analyse vérifiée' : 'à vérifier sur le sac'} • {r.label_photos.length} photo(s)</small>{r.label_photos.length > 0 && <><br />{r.label_photos.map(ph => <a key={ph} href={db.storage.from('product-labels').getPublicUrl(ph).data.publicUrl} target="_blank" rel="noreferrer noopener"><img alt="étiquette" src={db.storage.from('product-labels').getPublicUrl(ph).data.publicUrl} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginRight: 4 }} /></a>)}</>}</b><span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button type="button" onClick={() => edit(r)}>Modifier</button><button type="button" onClick={() => toggle(r)}>{r.active ? 'Masquer' : 'Réactiver'}</button></span></div>)}</div>
   </>;
 }
 
