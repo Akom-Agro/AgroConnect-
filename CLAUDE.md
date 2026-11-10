@@ -54,3 +54,12 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Catalogue engrais du commerce (table fertilizer_products + bucket product-labels, migration docs/migration_catalogue_engrais.sql, appliquée) : En cours. Analyses de départ NON vérifiées (à confirmer sur les sacs).
 - Calculateur « Engrais du commerce » (sacs, passages, g/pied) + onglet admin « Engrais » (farmtools.tsx, agrocalc.ts) : En cours (à tester).
 - À faire : SMTP Brevo, supprimer Worker dulyahrovia, changer mot de passe temporaire, fiches liquides/foliaires, clé Anthropic, refonte visuelle, revue top 5 vulnérabilités.
+
+
+## État au 10/11/2026
+- Validée : calculateur « Engrais du commerce » + catalogue engrais (testé en ligne par le promoteur).
+- Démonstration (migration docs/migration_demo_coop_historique.sql, appliquée) : lignes marquées is_demo (appels d'offres, réponses, marché, ventes groupées, engagements, échanges, intrants, financements, diagnostics). Boutons « Charger / Supprimer la démonstration » dans Administration (fonctions seed_demo_data / purge_demo_data, réservées admin). À supprimer avant la mise en ligne publique.
+- Appels d'offres : l'administrateur voit tous les appels et peut répondre avec ses propres champs ; le producteur voit « Mes propositions envoyées » (statut). En cours (à tester).
+- Coopérative (nouvel écran, menu Plus / barre latérale) : ventes groupées (créer = producteur PRO ou admin, s'engager, progression, valider/annuler) + Échanges entre producteurs (questions, conseils, informations, réponses). En cours (à tester). Les échanges ne sont pas validés par le comité.
+- Diagnostic IA : photo sauvegardée (bucket privé diagnostic-photos) + historique avec miniature, détails, téléchargement ; bouton « Enregistrer quand même la photo » quand l'analyse IA n'est pas disponible. En cours (à tester). L'analyse elle-même exige la clé Anthropic (À faire).
+- À faire : notifications push pour les échanges, modération des échanges, SMTP Brevo, clé Anthropic, refonte visuelle, revue top 5 vulnérabilités.
