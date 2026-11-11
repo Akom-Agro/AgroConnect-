@@ -489,6 +489,8 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     const i = invites.find(x => x.used_by === userId); const w = workers.find(x => x.user_id === userId);
     return (i && (i.full_name || i.phone)) || (w && w.phone) || 'Ouvrier';
   };
+  const inviteName = (inviteId: string | null) => { const i = invites.find(x => x.id === inviteId); return i ? `${i.full_name || i.phone || i.code} (pas encore inscrit)` : 'Ouvrier invité'; };
+  const taskWho = (k: any) => k.assigned_to ? nameOf(k.assigned_to) : k.assigned_invite ? inviteName(k.assigned_invite) : 'Non assignée';
   async function createInvite(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setMsg('');
     const { data: u } = await db.auth.getUser();
@@ -504,7 +506,7 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     const title = (t.title === '__autre' ? t.custom : t.title).trim();
     if (!title) { setMsg('Indiquez le nom de la tâche.'); return; }
     setBusy(true);
-    const { error } = await db.from('tasks').insert({ farm_id: field.farm_id, field_id: field.id, assigned_to: t.assigned || null, title, description: t.desc.trim() || null, priority: t.prio, due_date: t.due || null });
+    const { error } = await db.from('tasks').insert({ farm_id: field.farm_id, field_id: field.id, assigned_to: t.assigned && !t.assigned.startsWith('inv:') ? t.assigned : null, assigned_invite: t.assigned && t.assigned.startsWith('inv:') ? t.assigned.slice(4) : null, title, description: t.desc.trim() || null, priority: t.prio, due_date: t.due || null });
     setBusy(false);
     if (error) { setMsg(error.message); return; }
     setT({ ...t, custom: '', desc: '', due: '' }); setMsg('Tâche créée.'); load();
@@ -526,12 +528,12 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     <form className="tender" onSubmit={addTask}><div className="tendermain">
       <label>Tâche<select value={t.title} onChange={e => setT({ ...t, title: e.target.value })}>{taskPresets.map(p => <option key={p}>{p}</option>)}<option value="__autre">Autre…</option></select></label>
       {t.title === '__autre' && <label>Nom de la tâche<input required value={t.custom} onChange={e => setT({ ...t, custom: e.target.value })} /></label>}
-      <label>Assigner à<select value={t.assigned} onChange={e => setT({ ...t, assigned: e.target.value })}><option value="">— Pas encore assignée —</option>{workers.map(w => <option key={w.id} value={w.user_id}>{nameOf(w.user_id)}</option>)}</select></label>
+      <label>Assigner à<select value={t.assigned} onChange={e => setT({ ...t, assigned: e.target.value })}><option value="">— Pas encore assignée —</option>{workers.length > 0 && <optgroup label="Ouvriers inscrits">{workers.map(w => <option key={w.id} value={w.user_id}>{nameOf(w.user_id)}</option>)}</optgroup>}{invites.filter(i => !i.used).length > 0 && <optgroup label="Invités (pas encore inscrits)">{invites.filter(i => !i.used).map(i => <option key={i.id} value={'inv:' + i.id}>{(i.full_name || i.phone || i.code) + ' — code ' + i.code}</option>)}</optgroup>}</select></label>{workers.length === 0 && invites.filter(i => !i.used).length === 0 && <p className="muted">Créez d’abord un code d’invitation ci-dessus : vous pourrez ensuite assigner la tâche à l’ouvrier, même avant son inscription.</p>}{workers.length === 0 && invites.filter(i => !i.used).length > 0 && <p className="muted">Aucun ouvrier n’est encore inscrit. La tâche assignée à un invité lui sera transmise dès qu’il s’inscrira avec son code.</p>}
       <div className="gpsrow"><label>Priorité<select value={t.prio} onChange={e => setT({ ...t, prio: e.target.value })}>{Object.entries(prioLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label>Échéance<input type="date" value={t.due} onChange={e => setT({ ...t, due: e.target.value })} /></label></div>
       <label>Consigne (facultatif)<input value={t.desc} onChange={e => setT({ ...t, desc: e.target.value })} placeholder="Ex : rangées 1 à 10, 20 g d’engrais par pied" /></label>
     </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>＋ Créer la tâche</button></form>
     {msg && <div className="notice">{msg}</div>}
-    {tasks.length ? <div className="adminlist" style={{ marginTop: 12 }}>{tasks.map(k => <div key={k.id}><b>{k.title}<br /><small className="muted">{nameOf(k.assigned_to)}{k.due_date ? ` • échéance ${fmt(k.due_date)}` : ''} • {prioLabel[k.priority]}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className={'badge ' + (k.status === 'completed' ? 'green' : '')}>{taskStatusLabel[k.status] || k.status}</span>{(k.status === 'pending' || k.status === 'in_progress') && <button className="secondary" onClick={() => cancel(k.id)}>Annuler</button>}</span></div>)}</div> : <div className="empty"><p>Aucune tâche sur ce champ.</p></div>}
+    {tasks.length ? <div className="adminlist" style={{ marginTop: 12 }}>{tasks.map(k => <div key={k.id}><b>{k.title}<br /><small className="muted">{taskWho(k)}{k.due_date ? ` • échéance ${fmt(k.due_date)}` : ''} • {prioLabel[k.priority]}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className={'badge ' + (k.status === 'completed' ? 'green' : '')}>{taskStatusLabel[k.status] || k.status}</span>{(k.status === 'pending' || k.status === 'in_progress') && <button className="secondary" onClick={() => cancel(k.id)}>Annuler</button>}</span></div>)}</div> : <div className="empty"><p>Aucune tâche sur ce champ.</p></div>}
   </>;
 }
 

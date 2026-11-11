@@ -30,7 +30,7 @@ function CoopOffers({ db, profile, sector, setToast }: { db: DB; profile: Prof; 
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [f, setF] = useState({ farm: '', item: '', target: '', price: '', date: '', terms: '' });
+  const [f, setF] = useState({ farm: '', item: '', target: '', price: '', date: '', terms: '', desc: '' });
   const [commit, setCommit] = useState<{ offer: string; farm: string; volume: string } | null>(null);
   const canCreate = isAdminRole(profile.role) || (profile.role === 'producteur' && proActive(profile));
   const canCommit = profile.role === 'producteur' || isAdminRole(profile.role);
@@ -67,11 +67,11 @@ function CoopOffers({ db, profile, sector, setToast }: { db: DB; profile: Prof; 
     if (!(target > 0)) { setToast('Le volume cible doit être positif.'); return; }
     if (price !== null && !(price >= 0)) { setToast('Prix invalide.'); return; }
     setBusy(true);
-    const payload: any = { farm_id: f.farm, target_volume_kg: target, price_per_kg: price, harvest_date: f.date || null, payment_terms: f.terms.trim() || null, status: 'ouvert' };
+    const payload: any = { farm_id: f.farm, target_volume_kg: target, price_per_kg: price, harvest_date: f.date || null, payment_terms: f.terms.trim() || null, description: f.desc.trim() || null, status: 'ouvert' };
     if (sector === 'agriculture') payload.crop_id = f.item; else payload.livestock_type_id = f.item;
     const { error } = await db.from('cooperative_offers').insert(payload);
     setBusy(false);
-    if (error) setToast(error.message); else { setToast('Offre groupée créée.'); setOpen(false); setF({ farm: '', item: '', target: '', price: '', date: '', terms: '' }); load(); }
+    if (error) setToast(error.message); else { setToast('Offre groupée créée.'); setOpen(false); setF({ farm: '', item: '', target: '', price: '', date: '', terms: '', desc: '' }); load(); }
   }
   async function sendCommit(e: React.FormEvent) {
     e.preventDefault();
@@ -107,7 +107,7 @@ function CoopOffers({ db, profile, sector, setToast }: { db: DB; profile: Prof; 
       return <div className="tender" key={o.id}><div className="cropicon">🤝</div><div className="tendermain">
         <span className={'badge ' + (o.status === 'ouvert' ? 'green' : '')}>{o.status === 'ouvert' ? 'OUVERTE' : o.status.toUpperCase()}</span>{o.is_demo && <span className="badge"> DÉMO</span>}
         <h3>{label} • objectif {target.toLocaleString('fr-FR')} kg</h3>
-        <p>{o.price_per_kg ? `${Number(o.price_per_kg).toLocaleString('fr-FR')} FCFA/kg • ` : ''}{o.payment_terms || 'Conditions à préciser'}{o.harvest_date ? ` • récolte ${fmt(o.harvest_date)}` : ''}</p>
+        <p>{o.price_per_kg ? `${Number(o.price_per_kg).toLocaleString('fr-FR')} FCFA/kg • ` : ''}{o.payment_terms || 'Conditions à préciser'}{o.harvest_date ? ` • récolte ${fmt(o.harvest_date)}` : ''}</p>{o.description && <p>{o.description}</p>}
         <div style={{ background: 'var(--line)', borderRadius: 8, height: 10, overflow: 'hidden', margin: '8px 0 4px' }}><div style={{ width: pct + '%', height: '100%', background: 'var(--green2)' }} /></div>
         <small className="muted">{t.kg.toLocaleString('fr-FR')} kg engagés sur {target.toLocaleString('fr-FR')} kg ({pct} %) • {t.n} engagement(s){mine[o.id] ? ` • dont vous : ${mine[o.id].toLocaleString('fr-FR')} kg` : ''}</small>
         <div className="quick" style={{ marginTop: 8 }}>
@@ -126,6 +126,7 @@ function CoopOffers({ db, profile, sector, setToast }: { db: DB; profile: Prof; 
       <label>Prix proposé (FCFA/kg)<input type="number" min="0" step="any" value={f.price} onChange={e => setF({ ...f, price: e.target.value })} /></label>
       <label>Date souhaitée<input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} /></label>
       <label>Conditions<input maxLength={300} value={f.terms} onChange={e => setF({ ...f, terms: e.target.value })} /></label>
+      <label>Description du produit (qualité, variété, conditionnement…)<textarea maxLength={1500} rows={3} value={f.desc} onChange={e => setF({ ...f, desc: e.target.value })} /></label>
       <button className="primary wide" disabled={busy}>{busy ? 'Création…' : 'Publier l’offre groupée'}</button></form></div>}
     {commit && <div className="modal"><form className="modalcard" onSubmit={sendCommit}><div className="sectionhead"><h2>M’engager sur cette offre</h2><button type="button" onClick={() => setCommit(null)}>✕</button></div>
       <label>Exploitation<select value={commit.farm} onChange={e => setCommit({ ...commit, farm: e.target.value })}>{farms.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
