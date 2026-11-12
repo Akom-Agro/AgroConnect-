@@ -43,51 +43,111 @@ export function FieldTools({ db, field, role, go }: { db: DB; field: any; role: 
 }
 
 // ---------- Journal ----------
+function treatmentTypeFor(w: any): string {
+  if (!w) return 'autre';
+  if (w.product_family === 'engrais') return 'engrais';
+  if (w.product_family === 'herbicide' || w.product_family === 'fongicide' || w.product_family === 'insecticide') return w.product_family;
+  if (w.product_family) return 'pesticide';
+  if (w.category === 'irrigation') return 'irrigation';
+  if (w.name === 'Récolte') return 'récolte';
+  if (w.name === 'Semis direct' || w.name === 'Semis en pépinière') return 'semis';
+  if (w.name === 'Repiquage') return 'plantation';
+  if (['Désherbage manuel', 'Sarclage', 'Binage'].includes(w.name)) return 'désherbage';
+  return 'autre';
+}
+const modeLabel: Record<string, string> = { systemique: 'systémique', contact: 'contact', selectif: 'sélectif', non_selectif: 'non sélectif', preventif: 'préventif', curatif: 'curatif', autre: '' };
+const catName: Record<string, string> = { herbicide: 'Herbicides', fongicide: 'Fongicides', insecticide: 'Insecticides', acaricide: 'Acaricides', nematicide: 'Nématicides', engrais_foliaire: 'Engrais foliaires' };
+const wtCatLabel: Record<string, string> = { preparation: 'Préparation du terrain', pepiniere: 'Pépinière', entretien: 'Entretien de la culture', phyto: 'Traitements phytosanitaires', fertilisation: 'Fertilisation', irrigation: 'Irrigation', recolte: 'Récolte et post-récolte', elevage: 'Élevage', autre: 'Autres travaux' };
+
+function WorkTypeSelect({ types, value, onChange, sector }: { types: any[]; value: string; onChange: (id: string) => void; sector?: string }) {
+  const list = types.filter(t => !sector || t.sector === 'both' || t.sector === sector);
+  const cats = Array.from(new Set(list.map(t => t.category)));
+  return <select value={value} onChange={e => onChange(e.target.value)}>
+    <option value="">— choisir un travail —</option>
+    {cats.map(c => <optgroup key={c} label={wtCatLabel[c] || c}>{list.filter(t => t.category === c).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>)}
+  </select>;
+}
+
 function Journal({ db, field }: { db: DB; field: any }) {
   const [rows, setRows] = useState<any[]>([]);
+  const [types, setTypes] = useState<any[]>([]);
+  const [prods, setProds] = useState<any[]>([]);
   const [ings, setIngs] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
-  const [f, setF] = useState({ type: 'engrais', date: today(), ing: '', dose: '', unit: 'kg', area: String(field.area_ha || ''), notes: '' });
+  const [newProd, setNewProd] = useState(false);
+  const [cat, setCat] = useState('');
+  const [np, setNp] = useState({ name: '', ing: '' });
+  const [f, setF] = useState({ wt: '', date: today(), prod: '', dose: '', unit: 'kg', area: String(field.area_ha || ''), rec: '', notes: '' });
   async function load() {
-    const [t, i] = await Promise.all([
-      db.from('treatments').select('*, active_ingredients(name,legal_status)').eq('field_id', field.id).order('treatment_date', { ascending: false }).limit(50),
+    const [t, w, p, i] = await Promise.all([
+      db.from('treatments').select('*, active_ingredients(name,legal_status), work_types(name), phyto_products(commercial_name)').eq('field_id', field.id).order('treatment_date', { ascending: false }).limit(50),
+      db.from('work_types').select('*').eq('active', true).order('name'),
+      db.from('phyto_products').select('*, active_ingredients(name,legal_status,pre_harvest_interval_days,source)').eq('active', true).order('commercial_name'),
       db.from('active_ingredients').select('*').order('name'),
     ]);
-    setRows(t.data || []); setIngs((i.data || []) as Ingredient[]); setLoading(false);
+    setRows(t.data || []); setTypes(w.data || []); setProds(p.data || []); setIngs((i.data || []) as Ingredient[]); setLoading(false);
   }
   useEffect(() => { load(); }, [field.id]);
-  const chosen = ings.find(i => i.id === f.ing);
+  const wt = types.find(t => t.id === f.wt);
+  const fam = wt?.product_family === 'engrais' ? (cat === 'engrais_foliaire' ? 'engrais_foliaire' : undefined) : (wt?.product_family || cat || undefined);
+  const famProds = prods.filter(p => fam && p.family === fam);
+  const showCat = !!wt && wt.category !== 'recolte' && wt.category !== 'elevage' && wt.category !== 'irrigation' && (!wt.product_family || wt.product_family === 'engrais');
+  const prod = prods.find(p => p.id === f.prod);
+  const ai = prod?.active_ingredients;
+  async function addProduct() {
+    if (!np.name.trim() || !fam) { setMsg('Indiquez le nom commercial du produit.'); return; }
+    const { data: u } = await db.auth.getUser();
+    const { data, error } = await db.from('phyto_products').insert({ commercial_name: np.name.trim().slice(0, 80), family: fam, active_ingredient_id: np.ing || null, is_custom: true, created_by: u.user?.id, notes: 'Ajouté par un producteur — visible par tous, non modéré, à vérifier.' }).select('id').single();
+    if (error) { setMsg(error.message.includes('duplicate') ? 'Ce produit existe déjà dans la liste.' : error.message); return; }
+    setNewProd(false); setNp({ name: '', ing: '' }); await load(); setF(x => ({ ...x, prod: data!.id })); setMsg('Produit ajouté.');
+  }
   async function save(e: React.FormEvent) {
-    e.preventDefault(); setBusy(true); setMsg('');
+    e.preventDefault(); setMsg('');
+    if (!wt) { setMsg('Choisissez le travail réalisé.'); return; }
+    setBusy(true);
     const { error } = await db.from('treatments').insert({
-      field_id: field.id, type: f.type, treatment_date: f.date,
-      active_ingredient_id: f.ing || null, dose_value: f.dose ? Number(f.dose) : null, dose_unit: f.dose ? f.unit : null,
-      area_ha: f.area ? Number(f.area) : null, notes: f.notes || null,
+      field_id: field.id, type: treatmentTypeFor(wt.product_family || !fam ? wt : { ...wt, product_family: fam === 'engrais_foliaire' ? 'engrais' : fam }), work_type_id: wt.id, product_id: f.prod || null, treatment_date: f.date,
+      product: prod?.commercial_name || null,
+      active_ingredient_id: prod?.active_ingredient_id || null, dose_value: f.dose ? Number(f.dose) : null, dose_unit: f.dose ? f.unit : null,
+      area_ha: f.area ? Number(f.area) : null, recurrence_days: f.rec ? Number(f.rec) : null, notes: f.notes || null,
     });
     setBusy(false);
     if (error) { setMsg(error.message); return; }
-    setF({ ...f, ing: '', dose: '', notes: '' }); setMsg('Travail enregistré.'); load();
+    setF({ ...f, prod: '', dose: '', notes: '' }); setMsg('Travail enregistré.'); load();
   }
   const blocked = rows.filter(r => r.pre_harvest_until && r.pre_harvest_until >= today()).sort((a, b) => b.pre_harvest_until.localeCompare(a.pre_harvest_until))[0];
+  const addDays = (d: string, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  const upcoming = rows.filter(r => r.recurrence_days).map(r => ({ r, next: addDays(r.treatment_date, r.recurrence_days) })).filter(x => x.next >= today()).sort((a, b) => a.next.localeCompare(b.next))[0];
   return <>
     {blocked && <div className="notice">⏳ Ne pas récolter avant le <b>{fmt(blocked.pre_harvest_until)}</b> (délai avant récolte du dernier traitement).</div>}
+    {upcoming && <div className="notice">🔁 Prochain travail récurrent : <b>{upcoming.r.work_types?.name || typeLabel[upcoming.r.type]}</b> le <b>{fmt(upcoming.next)}</b>.</div>}
     <form className="tender" onSubmit={save}>
       <div className="tendermain">
-        <label>Type de travail<select value={f.type} onChange={e => setF({ ...f, type: e.target.value })}>{Object.entries(typeLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label>Travail réalisé<WorkTypeSelect types={types} value={f.wt} onChange={id => { setF({ ...f, wt: id, prod: '' }); setCat(''); setNewProd(false); }} /></label>
         <label>Date<input type="date" required value={f.date} onChange={e => setF({ ...f, date: e.target.value })} /></label>
-        <label>Matière active (si traitement)<select value={f.ing} onChange={e => setF({ ...f, ing: e.target.value })}><option value="">— aucune —</option>{ings.map(i => <option key={i.id} value={i.id}>{i.name}{i.legal_status === 'interdit' ? ' ⛔ INTERDIT' : ''}{i.is_demo ? ' (DÉMO)' : ''}</option>)}</select></label>
-        {chosen?.legal_status === 'interdit' && <div className="notice">⛔ Matière interdite au Cameroun : l’enregistrement sera refusé. Source : {chosen.source}</div>}
-        {chosen && chosen.legal_status === 'non_verifie' && <div className="notice">Statut légal non vérifié : confirmez auprès du comité ou d’un conseiller agréé.</div>}
-        <div className="gpsrow"><label>Quantité utilisée<input type="number" min="0" step="any" value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label><label>Unité<select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}><option>kg</option><option>g</option><option>L</option><option>mL</option><option>sacs</option></select></label></div>
-        <label>Surface traitée (ha)<input type="number" min="0" step="any" value={f.area} onChange={e => setF({ ...f, area: e.target.value })} /></label>
+        {showCat && <label>Catégorie de produit utilisée (facultatif)<select value={cat} onChange={e => { setCat(e.target.value); setF({ ...f, prod: '' }); }}><option value="">— aucun produit —</option><option value="herbicide">Herbicide (désherbant)</option><option value="fongicide">Fongicide (maladies)</option><option value="insecticide">Insecticide (insectes)</option><option value="acaricide">Acaricide (acariens)</option><option value="nematicide">Nématicide (nématodes)</option><option value="engrais_foliaire">Engrais foliaire</option></select></label>}
+        {fam && <>
+          <label>Produit ({catName[fam] || fam}) — nom commercial<select value={f.prod} onChange={e => { const pp = prods.find(x => x.id === e.target.value); if (pp?.active_ingredients?.legal_status === 'interdit') { setMsg('⛔ Produit interdit (' + (pp.active_ingredients.source || 'source non renseignée') + ') : sélection bloquée.'); return; } setMsg(''); setF({ ...f, prod: e.target.value }); }}><option value="">— choisir —</option>{famProds.map(p => <option key={p.id} value={p.id} disabled={p.active_ingredients?.legal_status === 'interdit'}>{p.commercial_name}{p.active_ingredients?.name ? ` (${p.active_ingredients.name})` : ''}{p.mode_action ? ` • ${modeLabel[p.mode_action]}` : ''}{p.active_ingredients?.legal_status === 'interdit' ? ' ⛔ INTERDIT' : ''}</option>)}</select></label>
+          {!newProd ? <button type="button" className="ghost" onClick={() => setNewProd(true)}>＋ Ajouter un produit à la catégorie « {catName[fam] || fam} » (visible par tous, non modéré)</button> : <div className="notice">
+            <label>Nom commercial<input value={np.name} maxLength={80} onChange={e => setNp({ ...np, name: e.target.value })} /></label>
+            {fam !== 'engrais_foliaire' && <label>Matière active (lue sur l’emballage)<select value={np.ing} onChange={e => setNp({ ...np, ing: e.target.value })}><option value="">— je ne sais pas —</option>{ings.filter(i => i.family === fam).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></label>}
+            <button type="button" className="primary" onClick={addProduct}>Ajouter ce produit</button> <button type="button" className="ghost" onClick={() => setNewProd(false)}>Annuler</button>
+          </div>}
+          {prod && <div className="notice">Matière active : <b>{ai?.name || 'non renseignée'}</b>{prod.mode_action ? ` • action ${modeLabel[prod.mode_action]}` : ''} • Délai avant récolte : <b>{ai?.pre_harvest_interval_days != null ? `${ai.pre_harvest_interval_days} j` : 'non renseigné — à lire sur l’étiquette du produit'}</b></div>}
+          {ai?.legal_status === 'interdit' && <div className="notice">⛔ Matière interdite au Cameroun : l’enregistrement sera refusé. Source : {ai.source}</div>}
+          {ai && ai.legal_status === 'non_verifie' && <div className="notice">⚠ <b>Statut non vérifié</b> : ce produit n’a pas encore été validé par le comité. Confirmez son homologation et son délai avant récolte auprès d’un conseiller agréé.</div>}
+        </>}
+        {fam && <div className="gpsrow"><label>Quantité utilisée<input type="number" min="0" step="any" value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label><label>Unité<select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}><option>kg</option><option>g</option><option>L</option><option>mL</option><option>sacs</option></select></label></div>}
+        <label>Surface concernée (ha)<input type="number" min="0" step="any" value={f.area} onChange={e => setF({ ...f, area: e.target.value })} /></label>
+        {(wt?.recurring_hint || fam) && <label>À répéter tous les … jours (facultatif)<input type="number" min="1" max="365" value={f.rec} onChange={e => setF({ ...f, rec: e.target.value })} placeholder="ex. 7" /></label>}
         <label>Remarque<input value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></label>
       </div>
       <button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>{busy ? 'Enregistrement…' : '＋ Enregistrer ce travail'}</button>
     </form>
     {msg && <div className="notice">{msg}</div>}
-    {loading ? <div className="loading">Chargement…</div> : rows.length ? <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id}><b>{typeLabel[r.type] || r.type}{r.active_ingredients?.name ? ` — ${r.active_ingredients.name}` : ''}{r.dose_value ? ` • ${r.dose_value} ${r.dose_unit}` : ''}</b><span className="badge">{fmt(r.treatment_date)}{r.pre_harvest_until ? ` • récolte après ${fmt(r.pre_harvest_until)}` : ''}</span></div>)}</div> : <div className="empty"><p>Aucun travail enregistré sur ce champ.</p></div>}
+    {loading ? <div className="loading">Chargement…</div> : rows.length ? <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id}><b>{r.work_types?.name || typeLabel[r.type] || r.type}{r.phyto_products?.commercial_name ? ` — ${r.phyto_products.commercial_name}` : ''}{r.active_ingredients?.name ? ` (${r.active_ingredients.name})` : ''}{r.dose_value ? ` • ${r.dose_value} ${r.dose_unit}` : ''}</b><span className="badge">{fmt(r.treatment_date)}{r.recurrence_days ? ` • tous les ${r.recurrence_days} j` : ''}{r.pre_harvest_until ? ` • récolte après ${fmt(r.pre_harvest_until)}` : ''}</span></div>)}</div> : <div className="empty"><p>Aucun travail enregistré sur ce champ.</p></div>}
   </>;
 }
 
@@ -474,16 +534,30 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [inv, setInv] = useState({ name: '', phone: '' });
-  const [t, setT] = useState({ title: taskPresets[0], custom: '', desc: '', assigned: '', prio: 'normal', due: '' });
+  const [t, setT] = useState({ title: taskPresets[0], wt: '', prod: '', rec: '', custom: '', desc: '', assigned: '', prio: 'normal', due: '' });
+  const [wts, setWts] = useState<any[]>([]);
+  const [tprods, setTprods] = useState<any[]>([]);
+  const [nw, setNw] = useState({ name: '', phone: '', email: '' });
+  const [cred, setCred] = useState<{ login: string; password: string; name: string } | null>(null);
   async function load() {
     const [i, w, k] = await Promise.all([
       db.from('worker_invites').select('*').eq('farm_id', field.farm_id).order('created_at', { ascending: false }),
       db.from('workers').select('*').eq('farm_id', field.farm_id),
       db.from('tasks').select('*').eq('field_id', field.id).order('created_at', { ascending: false }).limit(30),
     ]);
-    setInvites(i.data || []); setWorkers(w.data || []); setTasks(k.data || []); setLoading(false);
+    setInvites(i.data || []); setWorkers(w.data || []); setTasks(k.data || []);
+    const [a, b] = await Promise.all([db.from('work_types').select('*').eq('active', true).order('name'), db.from('phyto_products').select('id,commercial_name,family,active_ingredients(name)').eq('active', true).order('commercial_name')]);
+    setWts(a.data || []); setTprods(b.data || []); setLoading(false);
   }
   useEffect(() => { load(); }, [field.id]);
+  const twt = wts.find(x => x.id === t.wt);
+  async function createWorker(e: React.FormEvent) {
+    e.preventDefault(); setBusy(true); setMsg(''); setCred(null);
+    const { data, error } = await db.functions.invoke('create-worker', { body: { farm_id: field.farm_id, full_name: nw.name, phone: nw.phone, email: nw.email } });
+    setBusy(false);
+    if (error || !data?.ok) { let m = data?.error || 'Création impossible.'; try { const j = await (error as any)?.context?.json?.(); if (j?.error) m = j.error; } catch { /* ignore */ } setMsg(m); return; }
+    setCred({ login: data.login, password: data.password, name: data.name }); setNw({ name: '', phone: '', email: '' }); load();
+  }
   const nameOf = (userId: string | null) => {
     if (!userId) return 'Non assignée';
     const i = invites.find(x => x.used_by === userId); const w = workers.find(x => x.user_id === userId);
@@ -503,13 +577,13 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
   }
   async function addTask(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
-    const title = (t.title === '__autre' ? t.custom : t.title).trim();
+    const title = (twt ? twt.name : t.title === '__autre' ? t.custom : t.title).trim();
     if (!title) { setMsg('Indiquez le nom de la tâche.'); return; }
     setBusy(true);
-    const { error } = await db.from('tasks').insert({ farm_id: field.farm_id, field_id: field.id, assigned_to: t.assigned && !t.assigned.startsWith('inv:') ? t.assigned : null, assigned_invite: t.assigned && t.assigned.startsWith('inv:') ? t.assigned.slice(4) : null, title, description: t.desc.trim() || null, priority: t.prio, due_date: t.due || null });
+    const { error } = await db.from('tasks').insert({ farm_id: field.farm_id, field_id: field.id, assigned_to: t.assigned && !t.assigned.startsWith('inv:') ? t.assigned : null, assigned_invite: t.assigned && t.assigned.startsWith('inv:') ? t.assigned.slice(4) : null, title, description: t.desc.trim() || null, priority: t.prio, due_date: t.due || null, work_type_id: twt?.id || null, product_id: t.prod || null, recurrence_days: t.rec ? Number(t.rec) : null });
     setBusy(false);
     if (error) { setMsg(error.message); return; }
-    setT({ ...t, custom: '', desc: '', due: '' }); setMsg('Tâche créée.'); load();
+    setT({ ...t, wt: '', prod: '', rec: '', custom: '', desc: '', due: '' }); setMsg('Tâche créée.'); load();
   }
   async function cancel(id: string) { const { error } = await db.from('tasks').update({ status: 'cancelled' }).eq('id', id); setMsg(error ? error.message : ''); load(); }
   if (loading) return <div className="loading">Chargement…</div>;
@@ -517,7 +591,16 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     <h3>Ouvriers de cette exploitation ({workers.length})</h3>
     {workers.length ? <div className="adminlist">{workers.map(w => <div key={w.id}><b>{nameOf(w.user_id)}</b><span className="badge green">Rattaché</span></div>)}</div> : <div className="empty"><p>Aucun ouvrier rattaché pour le moment. Créez un code d’invitation ci-dessous.</p></div>}
 
-    <h3 style={{ marginTop: 16 }}>Inviter un nouvel ouvrier</h3>
+    <h3 style={{ marginTop: 16 }}>Créer le compte d’un ouvrier</h3>
+    <p className="muted">Vous créez vous-même le compte : l’ouvrier se connecte ensuite avec l’identifiant et le mot de passe que vous lui remettez.</p>
+    <form className="tender" onSubmit={createWorker}><div className="tendermain">
+      <label>Nom complet<input required maxLength={80} value={nw.name} onChange={e => setNw({ ...nw, name: e.target.value })} /></label>
+      <label>Téléphone<input inputMode="tel" value={nw.phone} onChange={e => setNw({ ...nw, phone: e.target.value })} placeholder="6xx xx xx xx" /></label>
+      <label>E-mail (facultatif)<input type="email" value={nw.email} onChange={e => setNw({ ...nw, email: e.target.value })} /></label>
+    </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>＋ Créer le compte</button></form>
+    {cred && <div className="notice">✅ Compte créé pour <b>{cred.name}</b>.<br />Identifiant : <b>{cred.login}</b><br />Mot de passe provisoire : <b>{cred.password}</b><br /><small>Notez-le maintenant : il ne sera plus affiché. Page de connexion : {typeof location !== 'undefined' ? location.origin : ''}</small></div>}
+
+    <h3 style={{ marginTop: 16 }}>Ou inviter par code (l’ouvrier s’inscrit lui-même)</h3>
     <form className="tender" onSubmit={createInvite}><div className="tendermain">
       <label>Nom de l’ouvrier<input value={inv.name} onChange={e => setInv({ ...inv, name: e.target.value })} placeholder="Ex : Jean Fotso" /></label>
       <label>Téléphone<input inputMode="tel" value={inv.phone} onChange={e => setInv({ ...inv, phone: e.target.value })} placeholder="Ex : 6xx xx xx xx" /></label>
@@ -526,8 +609,11 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
 
     <h3 style={{ marginTop: 16 }}>Assigner une tâche sur ce champ</h3>
     <form className="tender" onSubmit={addTask}><div className="tendermain">
-      <label>Tâche<select value={t.title} onChange={e => setT({ ...t, title: e.target.value })}>{taskPresets.map(p => <option key={p}>{p}</option>)}<option value="__autre">Autre…</option></select></label>
-      {t.title === '__autre' && <label>Nom de la tâche<input required value={t.custom} onChange={e => setT({ ...t, custom: e.target.value })} /></label>}
+      <label>Travail à faire<WorkTypeSelect types={wts} value={t.wt} onChange={id => setT({ ...t, wt: id, prod: '' })} /></label>
+      {twt?.product_family && twt.product_family !== 'engrais' && <label>Produit à utiliser (nom commercial)<select value={t.prod} onChange={e => setT({ ...t, prod: e.target.value })}><option value="">— au choix de l’ouvrier / à préciser —</option>{tprods.filter(p => p.family === twt.product_family).map(p => <option key={p.id} value={p.id}>{p.commercial_name}{p.active_ingredients?.name ? ` (${p.active_ingredients.name})` : ''}</option>)}</select></label>}
+      {(twt?.recurring_hint || twt?.product_family) && <label>À répéter tous les … jours (facultatif)<input type="number" min="1" max="365" value={t.rec} onChange={e => setT({ ...t, rec: e.target.value })} placeholder="ex. 7" /></label>}
+      {!twt && <label>Ou autre tâche (texte libre)<select value={t.title} onChange={e => setT({ ...t, title: e.target.value })}>{taskPresets.map(p => <option key={p}>{p}</option>)}<option value="__autre">Autre…</option></select></label>}
+      {!twt && t.title === '__autre' && <label>Nom de la tâche<input required value={t.custom} onChange={e => setT({ ...t, custom: e.target.value })} /></label>}
       <label>Assigner à<select value={t.assigned} onChange={e => setT({ ...t, assigned: e.target.value })}><option value="">— Pas encore assignée —</option>{workers.length > 0 && <optgroup label="Ouvriers inscrits">{workers.map(w => <option key={w.id} value={w.user_id}>{nameOf(w.user_id)}</option>)}</optgroup>}{invites.filter(i => !i.used).length > 0 && <optgroup label="Invités (pas encore inscrits)">{invites.filter(i => !i.used).map(i => <option key={i.id} value={'inv:' + i.id}>{(i.full_name || i.phone || i.code) + ' — code ' + i.code}</option>)}</optgroup>}</select></label>{workers.length === 0 && invites.filter(i => !i.used).length === 0 && <p className="muted">Créez d’abord un code d’invitation ci-dessus : vous pourrez ensuite assigner la tâche à l’ouvrier, même avant son inscription.</p>}{workers.length === 0 && invites.filter(i => !i.used).length > 0 && <p className="muted">Aucun ouvrier n’est encore inscrit. La tâche assignée à un invité lui sera transmise dès qu’il s’inscrira avec son code.</p>}
       <div className="gpsrow"><label>Priorité<select value={t.prio} onChange={e => setT({ ...t, prio: e.target.value })}>{Object.entries(prioLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label>Échéance<input type="date" value={t.due} onChange={e => setT({ ...t, due: e.target.value })} /></label></div>
       <label>Consigne (facultatif)<input value={t.desc} onChange={e => setT({ ...t, desc: e.target.value })} placeholder="Ex : rangées 1 à 10, 20 g d’engrais par pied" /></label>

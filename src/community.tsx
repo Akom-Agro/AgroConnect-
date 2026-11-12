@@ -186,6 +186,7 @@ function CoopPosts({ db, profile, sector, setToast }: { db: DB; profile: Prof; s
   }
   const shown = posts.filter(p => kind === 'tous' || p.kind === kind);
   return <>
+    <div className="notice" style={{ marginTop: 12 }}>ℹ️ Échanges entre agriculteurs : <b>non modérés</b> et non validés par un comité. Vérifiez toujours un conseil (produits, doses) auprès d’un technicien agréé.</div>
     {canWrite ? <form className="tender" style={{ marginTop: 12 }} onSubmit={publish}><div className="tendermain">
       <h3>Poser une question ou partager un conseil</h3>
       <label>Type<select value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value })}>{Object.entries(kindLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
