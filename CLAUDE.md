@@ -63,3 +63,12 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Coopérative (nouvel écran, menu Plus / barre latérale) : ventes groupées (créer = producteur PRO ou admin, s'engager, progression, valider/annuler) + Échanges entre producteurs (questions, conseils, informations, réponses). En cours (à tester). Les échanges ne sont pas validés par le comité.
 - Diagnostic IA : photo sauvegardée (bucket privé diagnostic-photos) + historique avec miniature, détails, téléchargement ; bouton « Enregistrer quand même la photo » quand l'analyse IA n'est pas disponible. En cours (à tester). L'analyse elle-même exige la clé Anthropic (À faire).
 - À faire : notifications push pour les échanges, modération des échanges, SMTP Brevo, clé Anthropic, refonte visuelle, revue top 5 vulnérabilités.
+
+
+## État au 12/11/2026
+- Testés par le promoteur : Coopérative, appels d'offres, marché, intrants, financements (affichage OK).
+- Diagnostic IA : bouton « Enregistrer la photo dans mon historique » visible dès qu'une photo est choisie ; archivage automatique si l'analyse échoue ; après analyse réussie la photo est rattachée automatiquement. En cours (à tester). Analyse réelle : clé Anthropic À faire.
+- Fiche produit : marché (nom, description, unité cageot/carton/sac/fût/tonne…, quantité, poids unitaire, prix/kg et prix/unité), appels d'offres (caractéristiques, conditionnement), ventes groupées (description), intrants (prix, unité, photos). En cours (à tester).
+- Vitrine publique (visiteurs non connectés) : Intrants (boutique), Marché, Appels d'offres, Ventes groupées, Financements, avec invitation à créer un compte pour agir. Contact des financements réservé aux inscrits. Aucun paiement/commande en ligne pour les intrants : À faire (passerelle de paiement).
+- Équipe : tâche assignable à un ouvrier invité avant son inscription (transférée à l'inscription via handle_new_user). En cours (à tester avec une vraie inscription par code).
+- Migrations appliquées : migration_demo_coop_historique.sql, migration_fiche_produit_vitrine.sql.
