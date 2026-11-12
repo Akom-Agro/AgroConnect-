@@ -96,7 +96,7 @@ function Journal({ db, field }: { db: DB; field: any }) {
   async function addProduct() {
     if (!np.name.trim() || !fam || fam === 'engrais') { setMsg('Indiquez le nom commercial du produit.'); return; }
     const { data: u } = await db.auth.getUser();
-    const { data, error } = await db.from('phyto_products').insert({ commercial_name: np.name.trim().slice(0, 80), family: fam, active_ingredient_id: np.ing || null, is_custom: true, created_by: u.user?.id, notes: 'Ajouté par un producteur — à vérifier.' }).select('id').single();
+    const { data, error } = await db.from('phyto_products').insert({ commercial_name: np.name.trim().slice(0, 80), family: fam, active_ingredient_id: np.ing || null, is_custom: true, created_by: u.user?.id, notes: 'Ajouté par un producteur — visible par tous, non modéré, à vérifier.' }).select('id').single();
     if (error) { setMsg(error.message.includes('duplicate') ? 'Ce produit existe déjà dans la liste.' : error.message); return; }
     setNewProd(false); setNp({ name: '', ing: '' }); await load(); setF(x => ({ ...x, prod: data!.id })); setMsg('Produit ajouté.');
   }
@@ -125,15 +125,15 @@ function Journal({ db, field }: { db: DB; field: any }) {
         <label>Travail réalisé<WorkTypeSelect types={types} value={f.wt} onChange={id => setF({ ...f, wt: id, prod: '' })} /></label>
         <label>Date<input type="date" required value={f.date} onChange={e => setF({ ...f, date: e.target.value })} /></label>
         {fam && fam !== 'engrais' && <>
-          <label>Produit utilisé ({fam}) — nom commercial<select value={f.prod} onChange={e => setF({ ...f, prod: e.target.value })}><option value="">— choisir —</option>{famProds.map(p => <option key={p.id} value={p.id}>{p.commercial_name}{p.active_ingredients?.name ? ` (${p.active_ingredients.name})` : ''}{p.mode_action ? ` • ${modeLabel[p.mode_action]}` : ''}{p.active_ingredients?.legal_status === 'interdit' ? ' ⛔ INTERDIT' : ''}</option>)}</select></label>
-          {!newProd ? <button type="button" className="ghost" onClick={() => setNewProd(true)}>＋ Mon produit n’est pas dans la liste</button> : <div className="notice">
+          <label>Produit utilisé ({fam}) — nom commercial<select value={f.prod} onChange={e => { const pp = prods.find(x => x.id === e.target.value); if (pp?.active_ingredients?.legal_status === 'interdit') { setMsg('⛔ Produit interdit (' + (pp.active_ingredients.source || 'source non renseignée') + ') : sélection bloquée.'); return; } setMsg(''); setF({ ...f, prod: e.target.value }); }}><option value="">— choisir —</option>{famProds.map(p => <option key={p.id} value={p.id} disabled={p.active_ingredients?.legal_status === 'interdit'}>{p.commercial_name}{p.active_ingredients?.name ? ` (${p.active_ingredients.name})` : ''}{p.mode_action ? ` • ${modeLabel[p.mode_action]}` : ''}{p.active_ingredients?.legal_status === 'interdit' ? ' ⛔ INTERDIT' : ''}</option>)}</select></label>
+          {!newProd ? <button type="button" className="ghost" onClick={() => setNewProd(true)}>＋ Mon produit n’est pas dans la liste (visible par tous, non modéré)</button> : <div className="notice">
             <label>Nom commercial<input value={np.name} maxLength={80} onChange={e => setNp({ ...np, name: e.target.value })} /></label>
             <label>Matière active (lue sur l’emballage)<select value={np.ing} onChange={e => setNp({ ...np, ing: e.target.value })}><option value="">— je ne sais pas —</option>{ings.filter(i => i.family === fam || i.family === 'autre').map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></label>
             <button type="button" className="primary" onClick={addProduct}>Ajouter ce produit</button> <button type="button" className="ghost" onClick={() => setNewProd(false)}>Annuler</button>
           </div>}
-          {prod && <div className="notice">Matière active : <b>{ai?.name || 'non renseignée'}</b>{prod.mode_action ? ` • action ${modeLabel[prod.mode_action]}` : ''} • Délai avant récolte : <b>{ai?.pre_harvest_interval_days != null ? `${ai.pre_harvest_interval_days} j` : 'à confirmer sur l’étiquette'}</b></div>}
+          {prod && <div className="notice">Matière active : <b>{ai?.name || 'non renseignée'}</b>{prod.mode_action ? ` • action ${modeLabel[prod.mode_action]}` : ''} • Délai avant récolte : <b>{ai?.pre_harvest_interval_days != null ? `${ai.pre_harvest_interval_days} j` : 'non renseigné — à lire sur l’étiquette du produit'}</b></div>}
           {ai?.legal_status === 'interdit' && <div className="notice">⛔ Matière interdite au Cameroun : l’enregistrement sera refusé. Source : {ai.source}</div>}
-          {ai && ai.legal_status === 'non_verifie' && <div className="notice">Statut légal non vérifié : confirmez auprès du comité ou d’un conseiller agréé.</div>}
+          {ai && ai.legal_status === 'non_verifie' && <div className="notice">⚠ <b>Statut non vérifié</b> : ce produit n’a pas encore été validé par le comité. Confirmez son homologation et son délai avant récolte auprès d’un conseiller agréé.</div>}
         </>}
         {fam && <div className="gpsrow"><label>Quantité utilisée<input type="number" min="0" step="any" value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label><label>Unité<select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}><option>kg</option><option>g</option><option>L</option><option>mL</option><option>sacs</option></select></label></div>}
         <label>Surface concernée (ha)<input type="number" min="0" step="any" value={f.area} onChange={e => setF({ ...f, area: e.target.value })} /></label>
