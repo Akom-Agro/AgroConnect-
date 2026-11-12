@@ -72,3 +72,8 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Vitrine publique (visiteurs non connectés) : Intrants (boutique), Marché, Appels d'offres, Ventes groupées, Financements, avec invitation à créer un compte pour agir. Contact des financements réservé aux inscrits. Aucun paiement/commande en ligne pour les intrants : À faire (passerelle de paiement).
 - Équipe : tâche assignable à un ouvrier invité avant son inscription (transférée à l'inscription via handle_new_user). En cours (à tester avec une vraie inscription par code).
 - Migrations appliquées : migration_demo_coop_historique.sql, migration_fiche_produit_vitrine.sql.
+
+## État au 12/11/2026 (lot duly-9)
+- Validée (testée en base) : correctif RLS création de tâche (admin + propriétaire).
+- En cours de test utilisateur : catalogue de travaux (work_types, ~45 types), produits phyto (nom commercial → matière active, mode d'action), cultures étendues (~75, cycle_days à confirmer = cycle_verified false), cultures personnalisées par producteur, comptes ouvriers créés par l'exploitant (Edge Function create-worker), carte de champ (satellite, tracé, surface, GPS) sur la page Champ et sur la Carte (tous rôles), paiement SIMULÉ Orange Money/MTN (payment_gateway_config.sim_enabled, RPC sim_confirm_payment).
+- À faire : vraie passerelle (comptes marchands + clés dans les secrets Supabase + webhook), commandes d'intrants, validation par le comité des matières actives (statut légal, délai avant récolte), valeurs de cycle des nouvelles cultures, désactiver le mode simulation avant le lancement public.
