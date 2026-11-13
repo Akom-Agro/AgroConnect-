@@ -25,7 +25,13 @@ export function FieldMap({ db, field, canEdit, onSaved, onDraft }: { db: any; fi
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const boundary: Pt[] = Array.isArray(field.boundary) ? field.boundary : [];
+  const [, setTick] = useState(0);
   const L = (window as any).L;
+  useEffect(() => {
+    if ((window as any).L) return;
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+    const sc = document.createElement('script'); sc.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; sc.onload = () => setTick(t => t + 1); document.body.appendChild(sc);
+  }, []);
 
   useEffect(() => {
     if (!L || !divRef.current || mapRef.current) return;
@@ -39,13 +45,13 @@ export function FieldMap({ db, field, canEdit, onSaved, onDraft }: { db: any; fi
     m.on('click', (e: any) => { if (drawingRef.current) setPoints(p => [...p, { lat: e.latlng.lat, lng: e.latlng.lng }]); });
     mapRef.current = m;
     return () => { m.remove(); mapRef.current = null; };
-  }, []);
+  }, [!!L]);
 
   useEffect(() => {
     const m = mapRef.current; if (!m) return;
     m.removeLayer(baseRef.current.osm); m.removeLayer(baseRef.current.sat);
     (sat ? baseRef.current.sat : baseRef.current.osm).addTo(m).bringToBack();
-  }, [sat]);
+  }, [sat, !!L]);
 
   useEffect(() => {
     if (!L || !shapeRef.current) return;
@@ -58,7 +64,7 @@ export function FieldMap({ db, field, canEdit, onSaved, onDraft }: { db: any; fi
     } else if (field.latitude && field.longitude) {
       L.marker([field.latitude, field.longitude]).addTo(shapeRef.current).bindPopup(field.name);
     }
-  }, [field.boundary, field.latitude, field.longitude]);
+  }, [field.boundary, field.latitude, field.longitude, !!L]);
 
   useEffect(() => {
     if (!L || !drawRef.current) return;
@@ -66,7 +72,7 @@ export function FieldMap({ db, field, canEdit, onSaved, onDraft }: { db: any; fi
     if (points.length) L.polyline(points.map(p => [p.lat, p.lng]).concat(points.length > 2 ? [[points[0].lat, points[0].lng]] : []), { color: '#ef4444', weight: 3, dashArray: '6 6' }).addTo(drawRef.current);
     points.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 6, color: '#fff', fillColor: '#ef4444', fillOpacity: 1 }).addTo(drawRef.current));
     if (points.length >= 3) L.marker([points.reduce((a, p) => a + p.lat, 0) / points.length, points.reduce((a, p) => a + p.lng, 0) / points.length], { icon: L.divIcon({ className: '', html: `<div style="background:#fff;padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">${areaHa(points).toFixed(2)} ha</div>` }) }).addTo(drawRef.current);
-  }, [points]);
+  }, [points, !!L]);
 
   function start() { setPoints([]); drawingRef.current = true; setDrawing(true); setMsg('Touchez la carte pour poser chaque coin du champ (3 points minimum).'); }
   function stop() { drawingRef.current = false; setDrawing(false); setPoints([]); }
@@ -87,7 +93,7 @@ export function FieldMap({ db, field, canEdit, onSaved, onDraft }: { db: any; fi
     if (error) { setMsg(error.message); return; }
     setMsg(`Champ enregistré : ${a.toFixed(2)} ha, position GPS mise à jour.`); stop(); onSaved?.();
   }
-  if (!L) return <div className="notice">Carte indisponible (connexion requise).</div>;
+  if (!L) return <div className="notice">Chargement de la carte… (connexion internet requise)</div>;
   return <div>
     <div className="quick" style={{ marginBottom: 8 }}>
       <button type="button" className="secondary" onClick={() => setSat(s => !s)}>{sat ? '🗺️ Plan' : '🛰️ Satellite'}</button>
