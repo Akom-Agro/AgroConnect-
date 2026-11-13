@@ -77,3 +77,12 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Validée (testée en base) : correctif RLS création de tâche (admin + propriétaire).
 - En cours de test utilisateur : catalogue de travaux (work_types, ~45 types), produits phyto (nom commercial → matière active, mode d'action), cultures étendues (~75, cycle_days à confirmer = cycle_verified false), cultures personnalisées par producteur, comptes ouvriers créés par l'exploitant (Edge Function create-worker), carte de champ (satellite, tracé, surface, GPS) sur la page Champ et sur la Carte (tous rôles), paiement SIMULÉ Orange Money/MTN (payment_gateway_config.sim_enabled, RPC sim_confirm_payment).
 - À faire : vraie passerelle (comptes marchands + clés dans les secrets Supabase + webhook), commandes d'intrants, validation par le comité des matières actives (statut légal, délai avant récolte), valeurs de cycle des nouvelles cultures, désactiver le mode simulation avant le lancement public.
+
+## Lot duly-10 (12/11/2026)
+- CONSTAT : le lot 9 avait été envoyé dans un dossier « src. » (avec un point) : non déployé. À renvoyer dans src/ et supprimer « src. ».
+- Ajouts : délai avant récolte « non renseigné », avertissement « statut non vérifié » renforcé, produit interdit non sélectionnable, « cycle indicatif, à confirmer » sur la fiche champ, mentions « non modéré » (coopérative, cultures et produits personnalisés).
+- Revue : docs/REVUE_5_FAILLES_LOT10.md. Test acheteur (RLS) : ne voit que sa propre ferme.
+
+## Lot duly-11 (12/11/2026 soir)
+- CONSTAT : l'envoi du lot 10 est retombé dans « src. » (le point final du lien a été pris pour le dossier), puis « src. » supprimé : la production est revenue à l'ancien code (pré-lot 9). Tout renvoyer dans src/.
+- Ajouts : tracé du champ DÈS la création (Nouveau champ > Tracer le champ sur la carte), catégorie de produit choisie explicitement (herbicide, fongicide, insecticide, acaricide, nématicide, engrais foliaire) avec liste filtrée et ajout de produit par catégorie.
