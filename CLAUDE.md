@@ -86,3 +86,8 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 ## Lot duly-11 (12/11/2026 soir)
 - CONSTAT : l'envoi du lot 10 est retombé dans « src. » (le point final du lien a été pris pour le dossier), puis « src. » supprimé : la production est revenue à l'ancien code (pré-lot 9). Tout renvoyer dans src/.
 - Ajouts : tracé du champ DÈS la création (Nouveau champ > Tracer le champ sur la carte), catégorie de produit choisie explicitement (herbicide, fongicide, insecticide, acaricide, nématicide, engrais foliaire) avec liste filtrée et ajout de produit par catégorie.
+
+## Lot duly-13 (13/11/2026)
+- CAUSE « Carte indisponible » : le index.html DE LA RACINE du dépôt n'avait pas Leaflet (seul src/index.html l'avait). Corrigé : index.html racine + chargement de secours de Leaflet dans FieldMap.
+- Ajouts : suppression d'un champ (page Champ) et d'une exploitation (Ma ferme) avec confirmation ; explication « exploitation = entreprise/site, champ = parcelle ».
+- Rappel : « src. » et fichiers « (1) » = envois ratés ; supprimer les anciens téléchargements du téléphone avant de re-télécharger.
