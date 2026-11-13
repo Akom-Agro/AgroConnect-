@@ -76,11 +76,27 @@ export function FieldMap({ db, field, canEdit, onSaved, onDraft }: { db: any; fi
 
   function start() { setPoints([]); drawingRef.current = true; setDrawing(true); setMsg('Touchez la carte pour poser chaque coin du champ (3 points minimum).'); }
   function stop() { drawingRef.current = false; setDrawing(false); setPoints([]); }
+  const watchRef = useRef<number | null>(null);
+  const meRef = useRef<any>(null);
+  useEffect(() => () => { if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current); }, []);
   function locate() {
     if (!navigator.geolocation) { setMsg('GPS indisponible sur cet appareil.'); return; }
-    setMsg('Recherche de la position…');
-    navigator.geolocation.getCurrentPosition(p => { mapRef.current?.setView([p.coords.latitude, p.coords.longitude], 18); setMsg(`Position obtenue (± ${Math.round(p.coords.accuracy)} m). Vous pouvez tracer le champ ici.`); },
-      () => setMsg('Autorisation GPS refusée ou position indisponible.'), { enableHighAccuracy: true, timeout: 15000 });
+    if (watchRef.current !== null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; if (meRef.current) { meRef.current.remove(); meRef.current = null; } setMsg('Suivi de la position arrêté.'); return; }
+    setMsg('Recherche de la position… (autorisez la localisation si le téléphone la demande)');
+    let first = true;
+    watchRef.current = navigator.geolocation.watchPosition(p => {
+      const m = mapRef.current; const LL = (window as any).L; if (!m || !LL) return;
+      const ll: [number, number] = [p.coords.latitude, p.coords.longitude];
+      if (!meRef.current) meRef.current = LL.layerGroup().addTo(m);
+      meRef.current.clearLayers();
+      LL.circle(ll, { radius: Math.max(p.coords.accuracy, 5), color: '#2563eb', weight: 1, fillOpacity: 0.12 }).addTo(meRef.current);
+      LL.circleMarker(ll, { radius: 8, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).addTo(meRef.current);
+      if (first) { m.setView(ll, 18); first = false; }
+      setMsg(`📍 Position en direct : ${ll[0].toFixed(5)}, ${ll[1].toFixed(5)} (± ${Math.round(p.coords.accuracy)} m). Touchez « Ma position » pour arrêter.`);
+    }, err => {
+      if (watchRef.current !== null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
+      setMsg(err.code === 1 ? 'Localisation refusée : autorisez-la pour ce site dans les réglages du navigateur (cadenas > Autorisations > Position).' : err.code === 3 ? 'Délai dépassé : sortez à l’air libre et réessayez.' : 'Position indisponible pour le moment.');
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
   }
   async function save() {
     if (points.length < 3) { setMsg('Il faut au moins 3 points.'); return; }

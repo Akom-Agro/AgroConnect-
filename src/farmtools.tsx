@@ -68,54 +68,146 @@ function WorkTypeSelect({ types, value, onChange, sector }: { types: any[]; valu
   </select>;
 }
 
+// ---------- Mes produits et matériel (chaque exploitation saisit les siens : rien n'est imposé) ----------
+const INPUT_CATS: [string, string, 'produit' | 'materiel'][] = [
+  ['herbicide', 'Herbicide (désherbant)', 'produit'], ['fongicide', 'Fongicide (maladies)', 'produit'], ['insecticide', 'Insecticide (insectes)', 'produit'],
+  ['acaricide', 'Acaricide (acariens)', 'produit'], ['nematicide', 'Nématicide (nématodes)', 'produit'], ['rodenticide', 'Raticide (dératisation)', 'produit'],
+  ['molluscicide', 'Molluscicide (limaces, escargots)', 'produit'], ['engrais_sol', 'Engrais du sol (NPK, urée, granulés)', 'produit'], ['engrais_foliaire', 'Engrais foliaire', 'produit'],
+  ['amendement', 'Amendement (chaux, fumier, compost)', 'produit'], ['semences', 'Semences et plants', 'produit'], ['traitement_semences', 'Traitement des semences', 'produit'],
+  ['protection_arbres', 'Soin des arbres (cicatrisant, badigeon)', 'produit'], ['regulateur', 'Régulateur de croissance', 'produit'],
+  ['vaccin', 'Vaccin (élevage)', 'produit'], ['vermifuge', 'Vermifuge (élevage)', 'produit'], ['soin_veto', 'Soin vétérinaire', 'produit'], ['aliment', 'Aliment / complément (élevage)', 'produit'],
+  ['outil_manuel', 'Outil manuel (machette, houe, daba, râteau, sécateur…)', 'materiel'], ['engin', 'Engin / machine (tronçonneuse, tracteur, motoculteur, débroussailleuse…)', 'materiel'],
+  ['pulverisateur', 'Pulvérisateur / épandeur', 'materiel'], ['irrigation_mat', 'Matériel d’arrosage (tuyaux, goutte-à-goutte, motopompe)', 'materiel'],
+  ['recolte_mat', 'Matériel de récolte (cageots, sacs, balance)', 'materiel'], ['tuteurage_mat', 'Tuteurs, piquets, ficelle, grillage', 'materiel'],
+  ['epi', 'Protection (gants, masque, bottes, combinaison)', 'materiel'],
+];
+const inputCatLabel = (c: string) => INPUT_CATS.find(x => x[0] === c)?.[1] || c;
+// Catégories universelles proposées pour chaque travail (suggestion : l'exploitant peut toujours tout afficher).
+function suggestCats(wt: any): string[] {
+  if (!wt) return [];
+  const n = String(wt.name || '').toLowerCase();
+  const has = (...k: string[]) => k.some(x => n.includes(x));
+  if (has('abattage')) return ['engin', 'outil_manuel', 'epi'];
+  if (has('défrichage')) return ['outil_manuel', 'engin', 'herbicide', 'epi'];
+  if (has('dessouchage', 'labour', 'billonnage', 'hersage')) return ['engin', 'outil_manuel'];
+  if (has('piquetage', 'tuteurage', 'palissage', 'clôture')) return ['tuteurage_mat', 'outil_manuel'];
+  if (has('désherbage chimique')) return ['herbicide', 'pulverisateur', 'epi'];
+  if (has('fongicide')) return ['fongicide', 'pulverisateur', 'epi'];
+  if (has('insecticide')) return ['insecticide', 'pulverisateur', 'epi'];
+  if (has('nématicide')) return ['nematicide', 'pulverisateur', 'epi'];
+  if (has('acaricide')) return ['acaricide', 'pulverisateur', 'epi'];
+  if (has('dératisation')) return ['rodenticide', 'epi'];
+  if (has('traitement des semences')) return ['traitement_semences', 'semences', 'epi'];
+  if (has('fumure', 'fertilisation')) return ['engrais_sol', 'engrais_foliaire', 'amendement', 'pulverisateur', 'outil_manuel', 'epi'];
+  if (has('pépinière')) return ['semences', 'outil_manuel', 'irrigation_mat', 'traitement_semences'];
+  if (has('semis', 'repiquage', 'regarnissage')) return ['semences', 'outil_manuel', 'traitement_semences'];
+  if (has('taille', 'éclaircissage', 'soin des arbres')) return ['outil_manuel', 'protection_arbres', 'epi'];
+  if (has('désherbage manuel', 'sarclage', 'binage', 'buttage', 'paillage')) return ['outil_manuel', 'amendement'];
+  if (has('irrigation')) return ['irrigation_mat', 'engrais_foliaire'];
+  if (has('récolte', 'tri ', 'séchage', 'stockage', 'transport')) return ['recolte_mat', 'outil_manuel', 'engin', 'rodenticide'];
+  if (has('alimentation', 'abreuvement')) return ['aliment', 'outil_manuel'];
+  if (has('vaccination')) return ['vaccin', 'soin_veto', 'epi'];
+  if (has('vermifugation')) return ['vermifuge', 'epi'];
+  if (has('soins vétérinaires')) return ['soin_veto', 'vaccin', 'vermifuge'];
+  if (has('nettoyage')) return ['outil_manuel', 'epi'];
+  if (has('surveillance')) return ['outil_manuel', 'rodenticide'];
+  return ['outil_manuel'];
+}
+type PickedItem = { id: string; name: string; kind: string; category: string; dose: string };
+
+function useFarmInputs(db: DB, farmId: string) {
+  const [inputs, setInputs] = useState<any[]>([]);
+  async function reload() { if (!farmId) return; const { data } = await db.from('farm_inputs').select('*').eq('farm_id', farmId).order('name'); setInputs(data || []); }
+  useEffect(() => { reload(); }, [farmId]);
+  return { inputs, reload };
+}
+
+function FarmInputsManager({ db, farmId, inputs, reload }: { db: DB; farmId: string; inputs: any[]; reload: () => void }) {
+  const [f, setF] = useState({ category: 'herbicide', name: '', ai: '', dose: '', notes: '' });
+  const [msg, setMsg] = useState('');
+  const [banned, setBanned] = useState<string[]>([]);
+  useEffect(() => { (async () => { const { data } = await db.from('active_ingredients').select('name').eq('legal_status', 'interdit'); setBanned((data || []).map((x: any) => String(x.name).toLowerCase())); })(); }, []);
+  const kind = INPUT_CATS.find(c => c[0] === f.category)?.[2] || 'produit';
+  async function add(e: React.FormEvent) {
+    e.preventDefault(); setMsg('');
+    const txt = (f.name + ' ' + f.ai).toLowerCase();
+    const hit = banned.find(b => b.length > 3 && txt.includes(b));
+    if (hit) { setMsg(`⛔ « ${hit} » est une matière active interdite au Cameroun : enregistrement refusé.`); return; }
+    const { data: u } = await db.auth.getUser();
+    const { error } = await db.from('farm_inputs').insert({ farm_id: farmId, created_by: u.user?.id, kind, category: f.category, name: f.name.trim(), active_ingredient: f.ai.trim() || null, default_dose: f.dose.trim() || null, notes: f.notes.trim() || null });
+    if (error) { setMsg(error.message.includes('duplicate') ? 'Ce nom existe déjà dans votre liste.' : error.message); return; }
+    setF({ ...f, name: '', ai: '', dose: '', notes: '' }); setMsg('Ajouté à votre liste.'); reload();
+  }
+  async function del(id: string) { if (!window.confirm('Retirer cet élément de votre liste ?')) return; const { error } = await db.from('farm_inputs').delete().eq('id', id); setMsg(error ? error.message : ''); reload(); }
+  const cats = Array.from(new Set(inputs.map(i => i.category)));
+  return <div>
+    <p className="muted">Ajoutez ici les produits et le matériel que <b>vous</b> achetez et utilisez dans votre exploitation. La plateforme n’impose aucun produit : vous choisissez selon ce que vous trouvez sur votre marché. Ils seront proposés quand vous assignez un travail.</p>
+    <form className="tender" onSubmit={add}><div className="tendermain">
+      <label>Catégorie<select value={f.category} onChange={e => setF({ ...f, category: e.target.value })}><optgroup label="Produits">{INPUT_CATS.filter(c => c[2] === 'produit').map(c => <option key={c[0]} value={c[0]}>{c[1]}</option>)}</optgroup><optgroup label="Matériel et outils">{INPUT_CATS.filter(c => c[2] === 'materiel').map(c => <option key={c[0]} value={c[0]}>{c[1]}</option>)}</optgroup></select></label>
+      <label>{kind === 'produit' ? 'Nom du produit (comme sur l’emballage)' : 'Nom du matériel'}<input required minLength={2} maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></label>
+      {kind === 'produit' && <label>Matière active (facultatif, lue sur l’emballage)<input maxLength={80} value={f.ai} onChange={e => setF({ ...f, ai: e.target.value })} /></label>}
+      <label>{kind === 'produit' ? 'Dosage habituel (ex. 30 mL par pulvérisateur de 15 L)' : 'Précision (facultatif)'}<input maxLength={120} value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label>
+      <label>Remarque (facultatif)<input maxLength={300} value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></label>
+    </div><button className="primary wide" style={{ minHeight: 44 }}>＋ Ajouter à ma liste</button></form>
+    {msg && <div className="notice">{msg}</div>}
+    {inputs.length ? cats.map(c => <div key={c} style={{ marginTop: 10 }}><b>{inputCatLabel(c)}</b><div className="adminlist">{inputs.filter(i => i.category === c).map(i => <div key={i.id}><b>{i.name}{i.active_ingredient ? ` (${i.active_ingredient})` : ''}<br /><small className="muted">{i.default_dose || ''}</small></b><button type="button" className="secondary" onClick={() => del(i.id)}>Retirer</button></div>)}</div></div>) : <div className="empty"><p>Votre liste est vide.</p></div>}
+  </div>;
+}
+
+function ItemsPicker({ inputs, wt, picked, setPicked }: { inputs: any[]; wt: any; picked: PickedItem[]; setPicked: (p: PickedItem[]) => void }) {
+  const [all, setAll] = useState(false);
+  if (!wt) return null;
+  const sug = suggestCats(wt);
+  const list = inputs.filter(i => all || sug.includes(i.category));
+  const cats = Array.from(new Set(list.map(i => i.category)));
+  const isPicked = (id: string) => picked.find(p => p.id === id);
+  function toggle(i: any) { setPicked(isPicked(i.id) ? picked.filter(p => p.id !== i.id) : [...picked, { id: i.id, name: i.name, kind: i.kind, category: i.category, dose: i.default_dose || '' }]); }
+  return <div style={{ marginTop: 8 }}>
+    <b>Produits et matériel à utiliser pour ce travail</b>
+    <p className="muted">Catégories habituelles : {sug.map(inputCatLabel).join(' • ')}</p>
+    {list.length ? cats.map(c => <div key={c}><small><b>{inputCatLabel(c)}</b></small>{list.filter(i => i.category === c).map(i => {
+      const p = isPicked(i.id);
+      return <div key={i.id} style={{ margin: '4px 0' }}>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={!!p} onChange={() => toggle(i)} style={{ width: 20, height: 20 }} /> {i.name}{i.active_ingredient ? ` (${i.active_ingredient})` : ''}</label>
+        {p && <input style={{ marginLeft: 28, width: 'calc(100% - 28px)' }} placeholder="Dosage / consigne pour l’ouvrier" maxLength={120} value={p.dose} onChange={e => setPicked(picked.map(x => x.id === i.id ? { ...x, dose: e.target.value } : x))} />}
+      </div>;
+    })}</div>) : <div className="notice">Rien dans votre liste pour ce travail. Ajoutez vos produits / matériel dans « Mes produits et matériel » puis revenez ici.</div>}
+    <button type="button" className="ghost" onClick={() => setAll(a => !a)}>{all ? 'Voir seulement les catégories habituelles' : 'Voir tous mes produits et matériel'}</button>
+  </div>;
+}
+const itemsText = (items: any[]) => (items || []).map(i => `${i.name}${i.dose ? ' — ' + i.dose : ''}`).join(' ; ');
+
 function Journal({ db, field }: { db: DB; field: any }) {
   const [rows, setRows] = useState<any[]>([]);
   const [types, setTypes] = useState<any[]>([]);
-  const [prods, setProds] = useState<any[]>([]);
-  const [ings, setIngs] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
-  const [newProd, setNewProd] = useState(false);
-  const [cat, setCat] = useState('');
-  const [np, setNp] = useState({ name: '', ing: '' });
-  const [f, setF] = useState({ wt: '', date: today(), prod: '', dose: '', unit: 'kg', area: String(field.area_ha || ''), rec: '', notes: '' });
+  const [picked, setPicked] = useState<PickedItem[]>([]);
+  const { inputs, reload: reloadInputs } = useFarmInputs(db, field.farm_id);
+  const [f, setF] = useState({ wt: '', date: today(), dose: '', unit: 'kg', area: String(field.area_ha || ''), rec: '', notes: '' });
   async function load() {
-    const [t, w, p, i] = await Promise.all([
-      db.from('treatments').select('*, active_ingredients(name,legal_status), work_types(name), phyto_products(commercial_name)').eq('field_id', field.id).order('treatment_date', { ascending: false }).limit(50),
+    const [t, w] = await Promise.all([
+      db.from('treatments').select('*, work_types(name)').eq('field_id', field.id).order('treatment_date', { ascending: false }).limit(50),
       db.from('work_types').select('*').eq('active', true).order('name'),
-      db.from('phyto_products').select('*, active_ingredients(name,legal_status,pre_harvest_interval_days,source)').eq('active', true).order('commercial_name'),
-      db.from('active_ingredients').select('*').order('name'),
     ]);
-    setRows(t.data || []); setTypes(w.data || []); setProds(p.data || []); setIngs((i.data || []) as Ingredient[]); setLoading(false);
+    setRows(t.data || []); setTypes(w.data || []); setLoading(false);
   }
   useEffect(() => { load(); }, [field.id]);
   const wt = types.find(t => t.id === f.wt);
-  const fam = wt?.product_family === 'engrais' ? (cat === 'engrais_foliaire' ? 'engrais_foliaire' : undefined) : (wt?.product_family || cat || undefined);
-  const famProds = prods.filter(p => fam && p.family === fam);
-  const showCat = !!wt && wt.category !== 'recolte' && wt.category !== 'elevage' && wt.category !== 'irrigation' && (!wt.product_family || wt.product_family === 'engrais');
-  const prod = prods.find(p => p.id === f.prod);
-  const ai = prod?.active_ingredients;
-  async function addProduct() {
-    if (!np.name.trim() || !fam) { setMsg('Indiquez le nom commercial du produit.'); return; }
-    const { data: u } = await db.auth.getUser();
-    const { data, error } = await db.from('phyto_products').insert({ commercial_name: np.name.trim().slice(0, 80), family: fam, active_ingredient_id: np.ing || null, is_custom: true, created_by: u.user?.id, notes: 'Ajouté par un producteur — visible par tous, non modéré, à vérifier.' }).select('id').single();
-    if (error) { setMsg(error.message.includes('duplicate') ? 'Ce produit existe déjà dans la liste.' : error.message); return; }
-    setNewProd(false); setNp({ name: '', ing: '' }); await load(); setF(x => ({ ...x, prod: data!.id })); setMsg('Produit ajouté.');
-  }
   async function save(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
     if (!wt) { setMsg('Choisissez le travail réalisé.'); return; }
     setBusy(true);
     const { error } = await db.from('treatments').insert({
-      field_id: field.id, type: treatmentTypeFor(wt.product_family || !fam ? wt : { ...wt, product_family: fam === 'engrais_foliaire' ? 'engrais' : fam }), work_type_id: wt.id, product_id: f.prod || null, treatment_date: f.date,
-      product: prod?.commercial_name || null,
-      active_ingredient_id: prod?.active_ingredient_id || null, dose_value: f.dose ? Number(f.dose) : null, dose_unit: f.dose ? f.unit : null,
+      field_id: field.id, type: treatmentTypeFor(wt), work_type_id: wt.id, treatment_date: f.date,
+      product: picked.length ? itemsText(picked).slice(0, 200) : null, items: picked,
+      dose_value: f.dose ? Number(f.dose) : null, dose_unit: f.dose ? f.unit : null,
       area_ha: f.area ? Number(f.area) : null, recurrence_days: f.rec ? Number(f.rec) : null, notes: f.notes || null,
     });
     setBusy(false);
     if (error) { setMsg(error.message); return; }
-    setF({ ...f, prod: '', dose: '', notes: '' }); setMsg('Travail enregistré.'); load();
+    setPicked([]); setF({ ...f, dose: '', notes: '' }); setMsg('Travail enregistré.'); load();
   }
   const blocked = rows.filter(r => r.pre_harvest_until && r.pre_harvest_until >= today()).sort((a, b) => b.pre_harvest_until.localeCompare(a.pre_harvest_until))[0];
   const addDays = (d: string, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
@@ -123,31 +215,21 @@ function Journal({ db, field }: { db: DB; field: any }) {
   return <>
     {blocked && <div className="notice">⏳ Ne pas récolter avant le <b>{fmt(blocked.pre_harvest_until)}</b> (délai avant récolte du dernier traitement).</div>}
     {upcoming && <div className="notice">🔁 Prochain travail récurrent : <b>{upcoming.r.work_types?.name || typeLabel[upcoming.r.type]}</b> le <b>{fmt(upcoming.next)}</b>.</div>}
+    <details style={{ marginBottom: 12 }}><summary><b>Mes produits et matériel ({inputs.length})</b></summary><FarmInputsManager db={db} farmId={field.farm_id} inputs={inputs} reload={reloadInputs} /></details>
     <form className="tender" onSubmit={save}>
       <div className="tendermain">
-        <label>Travail réalisé<WorkTypeSelect types={types} value={f.wt} onChange={id => { setF({ ...f, wt: id, prod: '' }); setCat(''); setNewProd(false); }} /></label>
+        <label>Travail réalisé<WorkTypeSelect types={types} value={f.wt} onChange={id => { setF({ ...f, wt: id }); setPicked([]); }} /></label>
         <label>Date<input type="date" required value={f.date} onChange={e => setF({ ...f, date: e.target.value })} /></label>
-        {showCat && <label>Catégorie de produit utilisée (facultatif)<select value={cat} onChange={e => { setCat(e.target.value); setF({ ...f, prod: '' }); }}><option value="">— aucun produit —</option><option value="herbicide">Herbicide (désherbant)</option><option value="fongicide">Fongicide (maladies)</option><option value="insecticide">Insecticide (insectes)</option><option value="acaricide">Acaricide (acariens)</option><option value="nematicide">Nématicide (nématodes)</option><option value="engrais_foliaire">Engrais foliaire</option></select></label>}
-        {fam && <>
-          <label>Produit ({catName[fam] || fam}) — nom commercial<select value={f.prod} onChange={e => { const pp = prods.find(x => x.id === e.target.value); if (pp?.active_ingredients?.legal_status === 'interdit') { setMsg('⛔ Produit interdit (' + (pp.active_ingredients.source || 'source non renseignée') + ') : sélection bloquée.'); return; } setMsg(''); setF({ ...f, prod: e.target.value }); }}><option value="">— choisir —</option>{famProds.map(p => <option key={p.id} value={p.id} disabled={p.active_ingredients?.legal_status === 'interdit'}>{p.commercial_name}{p.active_ingredients?.name ? ` (${p.active_ingredients.name})` : ''}{p.mode_action ? ` • ${modeLabel[p.mode_action]}` : ''}{p.active_ingredients?.legal_status === 'interdit' ? ' ⛔ INTERDIT' : ''}</option>)}</select></label>
-          {!newProd ? <button type="button" className="ghost" onClick={() => setNewProd(true)}>＋ Ajouter un produit à la catégorie « {catName[fam] || fam} » (visible par tous, non modéré)</button> : <div className="notice">
-            <label>Nom commercial<input value={np.name} maxLength={80} onChange={e => setNp({ ...np, name: e.target.value })} /></label>
-            {fam !== 'engrais_foliaire' && <label>Matière active (lue sur l’emballage)<select value={np.ing} onChange={e => setNp({ ...np, ing: e.target.value })}><option value="">— je ne sais pas —</option>{ings.filter(i => i.family === fam).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></label>}
-            <button type="button" className="primary" onClick={addProduct}>Ajouter ce produit</button> <button type="button" className="ghost" onClick={() => setNewProd(false)}>Annuler</button>
-          </div>}
-          {prod && <div className="notice">Matière active : <b>{ai?.name || 'non renseignée'}</b>{prod.mode_action ? ` • action ${modeLabel[prod.mode_action]}` : ''} • Délai avant récolte : <b>{ai?.pre_harvest_interval_days != null ? `${ai.pre_harvest_interval_days} j` : 'non renseigné — à lire sur l’étiquette du produit'}</b></div>}
-          {ai?.legal_status === 'interdit' && <div className="notice">⛔ Matière interdite au Cameroun : l’enregistrement sera refusé. Source : {ai.source}</div>}
-          {ai && ai.legal_status === 'non_verifie' && <div className="notice">⚠ <b>Statut non vérifié</b> : ce produit n’a pas encore été validé par le comité. Confirmez son homologation et son délai avant récolte auprès d’un conseiller agréé.</div>}
-        </>}
-        {fam && <div className="gpsrow"><label>Quantité utilisée<input type="number" min="0" step="any" value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label><label>Unité<select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}><option>kg</option><option>g</option><option>L</option><option>mL</option><option>sacs</option></select></label></div>}
+        <ItemsPicker inputs={inputs} wt={wt} picked={picked} setPicked={setPicked} />
+        {wt && <div className="gpsrow"><label>Quantité totale utilisée (facultatif)<input type="number" min="0" step="any" value={f.dose} onChange={e => setF({ ...f, dose: e.target.value })} /></label><label>Unité<select value={f.unit} onChange={e => setF({ ...f, unit: e.target.value })}><option>kg</option><option>g</option><option>L</option><option>mL</option><option>sacs</option></select></label></div>}
         <label>Surface concernée (ha)<input type="number" min="0" step="any" value={f.area} onChange={e => setF({ ...f, area: e.target.value })} /></label>
-        {(wt?.recurring_hint || fam) && <label>À répéter tous les … jours (facultatif)<input type="number" min="1" max="365" value={f.rec} onChange={e => setF({ ...f, rec: e.target.value })} placeholder="ex. 7" /></label>}
+        {(wt?.recurring_hint || wt?.product_family) && <label>À répéter tous les … jours (facultatif)<input type="number" min="1" max="365" value={f.rec} onChange={e => setF({ ...f, rec: e.target.value })} placeholder="ex. 7" /></label>}
         <label>Remarque<input value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></label>
       </div>
       <button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>{busy ? 'Enregistrement…' : '＋ Enregistrer ce travail'}</button>
     </form>
     {msg && <div className="notice">{msg}</div>}
-    {loading ? <div className="loading">Chargement…</div> : rows.length ? <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id}><b>{r.work_types?.name || typeLabel[r.type] || r.type}{r.phyto_products?.commercial_name ? ` — ${r.phyto_products.commercial_name}` : ''}{r.active_ingredients?.name ? ` (${r.active_ingredients.name})` : ''}{r.dose_value ? ` • ${r.dose_value} ${r.dose_unit}` : ''}</b><span className="badge">{fmt(r.treatment_date)}{r.recurrence_days ? ` • tous les ${r.recurrence_days} j` : ''}{r.pre_harvest_until ? ` • récolte après ${fmt(r.pre_harvest_until)}` : ''}</span></div>)}</div> : <div className="empty"><p>Aucun travail enregistré sur ce champ.</p></div>}
+    {loading ? <div className="loading">Chargement…</div> : rows.length ? <div className="adminlist" style={{ marginTop: 12 }}>{rows.map(r => <div key={r.id}><b>{r.work_types?.name || typeLabel[r.type] || r.type}{r.dose_value ? ` • ${r.dose_value} ${r.dose_unit}` : ''}{Array.isArray(r.items) && r.items.length ? <><br /><small className="muted">{itemsText(r.items)}</small></> : r.product ? <><br /><small className="muted">{r.product}</small></> : null}</b><span className="badge">{fmt(r.treatment_date)}{r.recurrence_days ? ` • tous les ${r.recurrence_days} j` : ''}{r.pre_harvest_until ? ` • récolte après ${fmt(r.pre_harvest_until)}` : ''}</span></div>)}</div> : <div className="empty"><p>Aucun travail enregistré sur ce champ.</p></div>}
   </>;
 }
 
@@ -536,7 +618,8 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
   const [inv, setInv] = useState({ name: '', phone: '' });
   const [t, setT] = useState({ title: taskPresets[0], wt: '', prod: '', rec: '', custom: '', desc: '', assigned: '', prio: 'normal', due: '' });
   const [wts, setWts] = useState<any[]>([]);
-  const [tprods, setTprods] = useState<any[]>([]);
+  const [picked, setPicked] = useState<PickedItem[]>([]);
+  const { inputs, reload: reloadInputs } = useFarmInputs(db, field.farm_id);
   const [nw, setNw] = useState({ name: '', phone: '', email: '' });
   const [cred, setCred] = useState<{ login: string; password: string; name: string } | null>(null);
   async function load() {
@@ -546,8 +629,8 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
       db.from('tasks').select('*').eq('field_id', field.id).order('created_at', { ascending: false }).limit(30),
     ]);
     setInvites(i.data || []); setWorkers(w.data || []); setTasks(k.data || []);
-    const [a, b] = await Promise.all([db.from('work_types').select('*').eq('active', true).order('name'), db.from('phyto_products').select('id,commercial_name,family,active_ingredients(name)').eq('active', true).order('commercial_name')]);
-    setWts(a.data || []); setTprods(b.data || []); setLoading(false);
+    const a = await db.from('work_types').select('*').eq('active', true).order('name');
+    setWts(a.data || []); setLoading(false);
   }
   useEffect(() => { load(); }, [field.id]);
   const twt = wts.find(x => x.id === t.wt);
@@ -580,10 +663,10 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     const title = (twt ? twt.name : t.title === '__autre' ? t.custom : t.title).trim();
     if (!title) { setMsg('Indiquez le nom de la tâche.'); return; }
     setBusy(true);
-    const { error } = await db.from('tasks').insert({ farm_id: field.farm_id, field_id: field.id, assigned_to: t.assigned && !t.assigned.startsWith('inv:') ? t.assigned : null, assigned_invite: t.assigned && t.assigned.startsWith('inv:') ? t.assigned.slice(4) : null, title, description: t.desc.trim() || null, priority: t.prio, due_date: t.due || null, work_type_id: twt?.id || null, product_id: t.prod || null, recurrence_days: t.rec ? Number(t.rec) : null });
+    const { error } = await db.from('tasks').insert({ farm_id: field.farm_id, field_id: field.id, assigned_to: t.assigned && !t.assigned.startsWith('inv:') ? t.assigned : null, assigned_invite: t.assigned && t.assigned.startsWith('inv:') ? t.assigned.slice(4) : null, title, description: t.desc.trim() || null, priority: t.prio, due_date: t.due || null, work_type_id: twt?.id || null, items: picked, recurrence_days: t.rec ? Number(t.rec) : null });
     setBusy(false);
     if (error) { setMsg(error.message); return; }
-    setT({ ...t, wt: '', prod: '', rec: '', custom: '', desc: '', due: '' }); setMsg('Tâche créée.'); load();
+    setT({ ...t, wt: '', prod: '', rec: '', custom: '', desc: '', due: '' }); setPicked([]); setMsg('Tâche créée.'); load();
   }
   async function cancel(id: string) { const { error } = await db.from('tasks').update({ status: 'cancelled' }).eq('id', id); setMsg(error ? error.message : ''); load(); }
   if (loading) return <div className="loading">Chargement…</div>;
@@ -598,7 +681,7 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
       <label>Téléphone<input inputMode="tel" value={nw.phone} onChange={e => setNw({ ...nw, phone: e.target.value })} placeholder="6xx xx xx xx" /></label>
       <label>E-mail (facultatif)<input type="email" value={nw.email} onChange={e => setNw({ ...nw, email: e.target.value })} /></label>
     </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>＋ Créer le compte</button></form>
-    {cred && <div className="notice">✅ Compte créé pour <b>{cred.name}</b>.<br />Identifiant : <b>{cred.login}</b><br />Mot de passe provisoire : <b>{cred.password}</b><br /><small>Notez-le maintenant : il ne sera plus affiché. Page de connexion : {typeof location !== 'undefined' ? location.origin : ''}</small></div>}
+    {cred && <div className="notice">✅ Compte créé pour <b>{cred.name}</b>.<br />Identifiant (à donner à l’ouvrier) : <b>{cred.login.endsWith('@ouvrier.agrivia.app') ? cred.login.replace('ouvrier.', '').replace('@ouvrier.agrivia.app', '') + ' (son numéro de téléphone)' : cred.login}</b><br />Mot de passe provisoire : <b>{cred.password}</b><br /><small>Notez-le maintenant : il ne sera plus affiché. Où se connecter : {typeof location !== 'undefined' ? location.origin : ''} → bouton « Connexion ouvrier / employé ».</small></div>}
 
     <h3 style={{ marginTop: 16 }}>Ou inviter par code (l’ouvrier s’inscrit lui-même)</h3>
     <form className="tender" onSubmit={createInvite}><div className="tendermain">
@@ -607,10 +690,12 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     </div><button className="primary" disabled={busy}>Générer le code</button></form>
     {invites.filter(i => !i.used).length > 0 && <div className="adminlist" style={{ marginTop: 10 }}>{invites.filter(i => !i.used).map(i => <div key={i.id}><b>{i.code}{i.full_name ? ` — ${i.full_name}` : ''}</b><span className="badge">En attente d’inscription</span></div>)}</div>}
 
+    <details style={{ marginTop: 16 }}><summary><b>Mes produits et matériel ({inputs.length})</b></summary><FarmInputsManager db={db} farmId={field.farm_id} inputs={inputs} reload={reloadInputs} /></details>
+
     <h3 style={{ marginTop: 16 }}>Assigner une tâche sur ce champ</h3>
     <form className="tender" onSubmit={addTask}><div className="tendermain">
-      <label>Travail à faire<WorkTypeSelect types={wts} value={t.wt} onChange={id => setT({ ...t, wt: id, prod: '' })} /></label>
-      {twt?.product_family && twt.product_family !== 'engrais' && <label>Produit à utiliser (nom commercial)<select value={t.prod} onChange={e => setT({ ...t, prod: e.target.value })}><option value="">— au choix de l’ouvrier / à préciser —</option>{tprods.filter(p => p.family === twt.product_family).map(p => <option key={p.id} value={p.id}>{p.commercial_name}{p.active_ingredients?.name ? ` (${p.active_ingredients.name})` : ''}</option>)}</select></label>}
+      <label>Travail à faire<WorkTypeSelect types={wts} value={t.wt} onChange={id => { setT({ ...t, wt: id, prod: '' }); setPicked([]); }} /></label>
+      <ItemsPicker inputs={inputs} wt={twt} picked={picked} setPicked={setPicked} />
       {(twt?.recurring_hint || twt?.product_family) && <label>À répéter tous les … jours (facultatif)<input type="number" min="1" max="365" value={t.rec} onChange={e => setT({ ...t, rec: e.target.value })} placeholder="ex. 7" /></label>}
       {!twt && <label>Ou autre tâche (texte libre)<select value={t.title} onChange={e => setT({ ...t, title: e.target.value })}>{taskPresets.map(p => <option key={p}>{p}</option>)}<option value="__autre">Autre…</option></select></label>}
       {!twt && t.title === '__autre' && <label>Nom de la tâche<input required value={t.custom} onChange={e => setT({ ...t, custom: e.target.value })} /></label>}
@@ -619,7 +704,7 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
       <label>Consigne (facultatif)<input value={t.desc} onChange={e => setT({ ...t, desc: e.target.value })} placeholder="Ex : rangées 1 à 10, 20 g d’engrais par pied" /></label>
     </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>＋ Créer la tâche</button></form>
     {msg && <div className="notice">{msg}</div>}
-    {tasks.length ? <div className="adminlist" style={{ marginTop: 12 }}>{tasks.map(k => <div key={k.id}><b>{k.title}<br /><small className="muted">{taskWho(k)}{k.due_date ? ` • échéance ${fmt(k.due_date)}` : ''} • {prioLabel[k.priority]}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className={'badge ' + (k.status === 'completed' ? 'green' : '')}>{taskStatusLabel[k.status] || k.status}</span>{(k.status === 'pending' || k.status === 'in_progress') && <button className="secondary" onClick={() => cancel(k.id)}>Annuler</button>}</span></div>)}</div> : <div className="empty"><p>Aucune tâche sur ce champ.</p></div>}
+    {tasks.length ? <div className="adminlist" style={{ marginTop: 12 }}>{tasks.map(k => <div key={k.id}><b>{k.title}<br /><small className="muted">{taskWho(k)}{k.due_date ? ` • échéance ${fmt(k.due_date)}` : ''} • {prioLabel[k.priority]}{Array.isArray(k.items) && k.items.length ? ` • ${itemsText(k.items)}` : ''}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className={'badge ' + (k.status === 'completed' ? 'green' : '')}>{taskStatusLabel[k.status] || k.status}</span>{(k.status === 'pending' || k.status === 'in_progress') && <button className="secondary" onClick={() => cancel(k.id)}>Annuler</button>}</span></div>)}</div> : <div className="empty"><p>Aucune tâche sur ce champ.</p></div>}
   </>;
 }
 
