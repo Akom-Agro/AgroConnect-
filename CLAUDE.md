@@ -97,3 +97,11 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - « Ma position » : suivi GPS en direct (point bleu + cercle de précision), bouton pour arrêter (carte générale et carte du champ).
 - Produits & matériel : la plateforme n'impose AUCUN produit. Table farm_inputs (par exploitation). La plateforme ne fournit que des CATÉGORIES (herbicide, raticide, engin, outil manuel, EPI…) proposées selon le type de travail. L'exploitant saisit ses produits/matériel, les sélectionne avec dosage lors d'une tâche ou du journal ; l'ouvrier voit « À utiliser : … ».
 - Limites : interdiction de matières actives = contrôle texte côté appli seulement ; GPS direct et tracé non testés avec le vrai Leaflet ; anciennes tables phyto_products/active_ingredients conservées mais non utilisées par l'interface.
+
+## Lot duly-15 (13/11/2026)
+- Identifiants ouvrier : après création, boutons WhatsApp / SMS / copier avec message prêt (PAS d'envoi automatique : un SMS automatique exige une passerelle SMS payante, non branchée).
+- Mot de passe : l'ouvrier le change dans Profil ; l'employeur génère un nouveau mot de passe (Équipe → 🔑, Edge Function reset-worker-password, vérifie que l'ouvrier appartient à sa ferme). « Mot de passe oublié » par e-mail impossible pour les comptes téléphone.
+- Aller au champ : remplace l'ancienne fausse carte « Localisation » ; itinéraire Google Maps / Waze / envoi de la position (utilise latitude/longitude du champ tracé).
+- Tâches : l'ouvrier termine avec remarque, l'employeur VALIDE ; journal du champ filtrable par période / ouvrier / état. Colonnes tasks.completion_note, completed_by, validated_at, validated_by.
+- Votre avis : écran pour tous (table app_feedback, RLS : chacun voit les siens, l'admin voit tout).
+- À faire : volet social (fil d'échanges entre agriculteurs), puis élevage.
