@@ -91,3 +91,9 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - CAUSE « Carte indisponible » : le index.html DE LA RACINE du dépôt n'avait pas Leaflet (seul src/index.html l'avait). Corrigé : index.html racine + chargement de secours de Leaflet dans FieldMap.
 - Ajouts : suppression d'un champ (page Champ) et d'une exploitation (Ma ferme) avec confirmation ; explication « exploitation = entreprise/site, champ = parcelle ».
 - Rappel : « src. » et fichiers « (1) » = envois ratés ; supprimer les anciens téléchargements du téléphone avant de re-télécharger.
+
+## Lot duly-14 (13/11/2026)
+- Connexion OUVRIER : onglet « Ouvrier / employé » sur l'écran de connexion (téléphone ou e-mail + mot de passe temporaire donné par l'exploitant, créé dans Champ → Équipe).
+- « Ma position » : suivi GPS en direct (point bleu + cercle de précision), bouton pour arrêter (carte générale et carte du champ).
+- Produits & matériel : la plateforme n'impose AUCUN produit. Table farm_inputs (par exploitation). La plateforme ne fournit que des CATÉGORIES (herbicide, raticide, engin, outil manuel, EPI…) proposées selon le type de travail. L'exploitant saisit ses produits/matériel, les sélectionne avec dosage lors d'une tâche ou du journal ; l'ouvrier voit « À utiliser : … ».
+- Limites : interdiction de matières actives = contrôle texte côté appli seulement ; GPS direct et tracé non testés avec le vrai Leaflet ; anciennes tables phyto_products/active_ingredients conservées mais non utilisées par l'interface.
