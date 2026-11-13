@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 type Pt = { lat: number; lng: number };
 export function areaHa(points: Pt[]): number {
