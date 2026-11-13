@@ -604,9 +604,27 @@ function DemoPurge({ db }: { db: DB }) {
 }
 
 // ---------- Équipe du champ : inviter un ouvrier, lui assigner des tâches sur CE champ ----------
-const taskStatusLabel: Record<string, string> = { pending: 'À faire', in_progress: 'En cours', completed: 'Terminée', cancelled: 'Annulée' };
+const taskStatusLabel: Record<string, string> = { pending: 'À faire', in_progress: 'En cours', completed: 'Terminée (à valider)', cancelled: 'Annulée' };
 const prioLabel: Record<string, string> = { low: 'Basse', normal: 'Normale', high: 'Haute', urgent: 'Urgente' };
 const taskPresets = ['Désherbage', 'Arrosage', 'Épandage d’engrais', 'Traitement phytosanitaire', 'Tuteurage / taille', 'Récolte', 'Surveillance du champ'];
+
+const waPhone = (ph: string) => { const d = String(ph || '').replace(/\D/g, ''); return d.length === 9 ? '237' + d : d; };
+function credMessage(name: string, login: string, password: string) {
+  const id = login.endsWith('@ouvrier.agrivia.app') ? login.replace('ouvrier.', '').replace('@ouvrier.agrivia.app', '') : login;
+  const url = typeof location !== 'undefined' ? location.origin : '';
+  return `Bonjour ${name}, votre compte DulyAgrivia est prêt.\nSite : ${url}\nAppuyez sur « Se connecter » puis sur l’onglet « Ouvrier / employé ».\nIdentifiant : ${id}\nMot de passe provisoire : ${password}\nChangez-le dans Profil après votre première connexion.`;
+}
+function ShareCred({ cred }: { cred: { name: string; login: string; password: string; phone?: string } }) {
+  const text = credMessage(cred.name, cred.login, cred.password);
+  const ph = waPhone(cred.phone || '');
+  const [copied, setCopied] = useState(false);
+  async function copy() { try { await navigator.clipboard.writeText(text); setCopied(true); } catch { setCopied(false); } }
+  return <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+    {ph.length >= 8 && <a className="secondary" style={{ padding: '10px 14px', borderRadius: 12 }} target="_blank" rel="noopener noreferrer" href={`https://wa.me/${ph}?text=${encodeURIComponent(text)}`}>📲 Envoyer par WhatsApp</a>}
+    {ph.length >= 8 && <a className="secondary" style={{ padding: '10px 14px', borderRadius: 12 }} href={`sms:+${ph}?&body=${encodeURIComponent(text)}`}>✉️ Envoyer par SMS</a>}
+    <button type="button" className="secondary" onClick={copy}>{copied ? '✓ Copié' : '📋 Copier le message'}</button>
+  </div>;
+}
 
 function TeamTab({ db, field }: { db: DB; field: any }) {
   const [invites, setInvites] = useState<any[]>([]);
@@ -621,7 +639,8 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
   const [picked, setPicked] = useState<PickedItem[]>([]);
   const { inputs, reload: reloadInputs } = useFarmInputs(db, field.farm_id);
   const [nw, setNw] = useState({ name: '', phone: '', email: '' });
-  const [cred, setCred] = useState<{ login: string; password: string; name: string } | null>(null);
+  const [fl, setFl] = useState({ from: '', to: '', worker: '', status: '' });
+  const [cred, setCred] = useState<{ login: string; password: string; name: string; phone?: string; reset?: boolean } | null>(null);
   async function load() {
     const [i, w, k] = await Promise.all([
       db.from('worker_invites').select('*').eq('farm_id', field.farm_id).order('created_at', { ascending: false }),
@@ -639,7 +658,7 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     const { data, error } = await db.functions.invoke('create-worker', { body: { farm_id: field.farm_id, full_name: nw.name, phone: nw.phone, email: nw.email } });
     setBusy(false);
     if (error || !data?.ok) { let m = data?.error || 'Création impossible.'; try { const j = await (error as any)?.context?.json?.(); if (j?.error) m = j.error; } catch { /* ignore */ } setMsg(m); return; }
-    setCred({ login: data.login, password: data.password, name: data.name }); setNw({ name: '', phone: '', email: '' }); load();
+    setCred({ login: data.login, password: data.password, name: data.name, phone: nw.phone }); setNw({ name: '', phone: '', email: '' }); load();
   }
   const nameOf = (userId: string | null) => {
     if (!userId) return 'Non assignée';
@@ -668,11 +687,24 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     if (error) { setMsg(error.message); return; }
     setT({ ...t, wt: '', prod: '', rec: '', custom: '', desc: '', due: '' }); setPicked([]); setMsg('Tâche créée.'); load();
   }
+  async function resetPw(w: any) {
+    if (!confirm(`Générer un nouveau mot de passe pour ${nameOf(w.user_id)} ? L’ancien ne fonctionnera plus.`)) return;
+    setBusy(true); setMsg(''); setCred(null);
+    const { data, error } = await db.functions.invoke('reset-worker-password', { body: { farm_id: field.farm_id, worker_user_id: w.user_id } });
+    setBusy(false);
+    if (error || !data?.ok) { let m = data?.error || 'Réinitialisation impossible.'; try { const j = await (error as any)?.context?.json?.(); if (j?.error) m = j.error; } catch { /* ignore */ } setMsg(m); return; }
+    setCred({ login: data.login, password: data.password, name: nameOf(w.user_id), phone: w.phone || '', reset: true });
+  }
+  async function validate(id: string) {
+    const { data: u } = await db.auth.getUser();
+    const { error } = await db.from('tasks').update({ validated_at: new Date().toISOString(), validated_by: u?.user?.id || null }).eq('id', id);
+    setMsg(error ? error.message : ''); load();
+  }
   async function cancel(id: string) { const { error } = await db.from('tasks').update({ status: 'cancelled' }).eq('id', id); setMsg(error ? error.message : ''); load(); }
   if (loading) return <div className="loading">Chargement…</div>;
   return <>
     <h3>Ouvriers de cette exploitation ({workers.length})</h3>
-    {workers.length ? <div className="adminlist">{workers.map(w => <div key={w.id}><b>{nameOf(w.user_id)}</b><span className="badge green">Rattaché</span></div>)}</div> : <div className="empty"><p>Aucun ouvrier rattaché pour le moment. Créez un code d’invitation ci-dessous.</p></div>}
+    {workers.length ? <div className="adminlist">{workers.map(w => <div key={w.id}><b>{nameOf(w.user_id)}{w.phone ? <><br /><small className="muted">{w.phone}</small></> : null}</b><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className="badge green">Rattaché</span><button type="button" className="secondary" disabled={busy} onClick={() => resetPw(w)}>🔑 Nouveau mot de passe</button></span></div>)}</div> : <div className="empty"><p>Aucun ouvrier rattaché pour le moment. Créez un code d’invitation ci-dessous.</p></div>}
 
     <h3 style={{ marginTop: 16 }}>Créer le compte d’un ouvrier</h3>
     <p className="muted">Vous créez vous-même le compte : l’ouvrier se connecte ensuite avec l’identifiant et le mot de passe que vous lui remettez.</p>
@@ -681,7 +713,7 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
       <label>Téléphone<input inputMode="tel" value={nw.phone} onChange={e => setNw({ ...nw, phone: e.target.value })} placeholder="6xx xx xx xx" /></label>
       <label>E-mail (facultatif)<input type="email" value={nw.email} onChange={e => setNw({ ...nw, email: e.target.value })} /></label>
     </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>＋ Créer le compte</button></form>
-    {cred && <div className="notice">✅ Compte créé pour <b>{cred.name}</b>.<br />Identifiant (à donner à l’ouvrier) : <b>{cred.login.endsWith('@ouvrier.agrivia.app') ? cred.login.replace('ouvrier.', '').replace('@ouvrier.agrivia.app', '') + ' (son numéro de téléphone)' : cred.login}</b><br />Mot de passe provisoire : <b>{cred.password}</b><br /><small>Notez-le maintenant : il ne sera plus affiché. Où se connecter : {typeof location !== 'undefined' ? location.origin : ''} → bouton « Connexion ouvrier / employé ».</small></div>}
+    {cred && <div className="notice">✅ {cred.reset ? 'Nouveau mot de passe pour' : 'Compte créé pour'} <b>{cred.name}</b>.<br />Identifiant : <b>{cred.login.endsWith('@ouvrier.agrivia.app') ? cred.login.replace('ouvrier.', '').replace('@ouvrier.agrivia.app', '') + ' (son numéro de téléphone)' : cred.login}</b><br />Mot de passe provisoire : <b>{cred.password}</b><br /><small>Notez-le maintenant : il ne sera plus affiché. L’envoi n’est pas automatique : les boutons ci-dessous ouvrent WhatsApp ou vos SMS avec le message déjà écrit, vous n’avez plus qu’à appuyer sur « Envoyer ».</small><ShareCred cred={cred} /></div>}
 
     <h3 style={{ marginTop: 16 }}>Ou inviter par code (l’ouvrier s’inscrit lui-même)</h3>
     <form className="tender" onSubmit={createInvite}><div className="tendermain">
@@ -704,7 +736,16 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
       <label>Consigne (facultatif)<input value={t.desc} onChange={e => setT({ ...t, desc: e.target.value })} placeholder="Ex : rangées 1 à 10, 20 g d’engrais par pied" /></label>
     </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy}>＋ Créer la tâche</button></form>
     {msg && <div className="notice">{msg}</div>}
-    {tasks.length ? <div className="adminlist" style={{ marginTop: 12 }}>{tasks.map(k => <div key={k.id}><b>{k.title}<br /><small className="muted">{taskWho(k)}{k.due_date ? ` • échéance ${fmt(k.due_date)}` : ''} • {prioLabel[k.priority]}{Array.isArray(k.items) && k.items.length ? ` • ${itemsText(k.items)}` : ''}</small></b><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className={'badge ' + (k.status === 'completed' ? 'green' : '')}>{taskStatusLabel[k.status] || k.status}</span>{(k.status === 'pending' || k.status === 'in_progress') && <button className="secondary" onClick={() => cancel(k.id)}>Annuler</button>}</span></div>)}</div> : <div className="empty"><p>Aucune tâche sur ce champ.</p></div>}
+    <h3 style={{ marginTop: 16 }}>Journal des tâches du champ</h3>
+    <p className="muted">Qui a fait quoi, et quand. Quand l’ouvrier termine une tâche, vous la validez ici.</p>
+    <div className="gpsrow"><label>Du<input type="date" value={fl.from} onChange={e => setFl({ ...fl, from: e.target.value })} /></label><label>Au<input type="date" value={fl.to} onChange={e => setFl({ ...fl, to: e.target.value })} /></label></div>
+    <div className="gpsrow"><label>Ouvrier<select value={fl.worker} onChange={e => setFl({ ...fl, worker: e.target.value })}><option value="">Tous</option>{workers.map(w => <option key={w.id} value={w.user_id}>{nameOf(w.user_id)}</option>)}</select></label><label>État<select value={fl.status} onChange={e => setFl({ ...fl, status: e.target.value })}><option value="">Tous</option><option value="pending">À faire</option><option value="in_progress">En cours</option><option value="completed">Terminée à valider</option><option value="validated">Validée</option><option value="cancelled">Annulée</option></select></label></div>
+    {(() => {
+      const day = (k: any) => String(k.completed_at || k.created_at || '').slice(0, 10);
+      const state = (k: any) => k.validated_at ? 'validated' : k.status;
+      const list = tasks.filter(k => (!fl.from || day(k) >= fl.from) && (!fl.to || day(k) <= fl.to) && (!fl.worker || k.assigned_to === fl.worker) && (!fl.status || state(k) === fl.status));
+      return list.length ? <div className="adminlist" style={{ marginTop: 8 }}>{list.map(k => <div key={k.id}><b>{k.title}<br /><small className="muted">{taskWho(k)}{k.due_date ? ` • échéance ${fmt(k.due_date)}` : ''} • {prioLabel[k.priority]}{Array.isArray(k.items) && k.items.length ? ` • ${itemsText(k.items)}` : ''}</small>{k.completed_at && <><br /><small className="muted">Terminée le {new Date(k.completed_at).toLocaleString('fr-FR')}{k.completion_note ? ` — « ${k.completion_note} »` : ''}</small></>}{k.validated_at && <><br /><small className="muted">Validée le {new Date(k.validated_at).toLocaleString('fr-FR')}</small></>}</b><span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><span className={'badge ' + (k.validated_at || k.status === 'completed' ? 'green' : '')}>{k.validated_at ? 'Validée ✓' : taskStatusLabel[k.status] || k.status}</span>{k.status === 'completed' && !k.validated_at && <button type="button" className="primary" onClick={() => validate(k.id)}>✓ Valider</button>}{(k.status === 'pending' || k.status === 'in_progress') && <button className="secondary" onClick={() => cancel(k.id)}>Annuler</button>}</span></div>)}</div> : <div className="empty"><p>Aucune tâche pour ces critères.</p></div>;
+    })()}
   </>;
 }
 
