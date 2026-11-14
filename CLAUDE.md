@@ -105,3 +105,25 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Tâches : l'ouvrier termine avec remarque, l'employeur VALIDE ; journal du champ filtrable par période / ouvrier / état. Colonnes tasks.completion_note, completed_by, validated_at, validated_by.
 - Votre avis : écran pour tous (table app_feedback, RLS : chacun voit les siens, l'admin voit tout).
 - À faire : volet social (fil d'échanges entre agriculteurs), puis élevage.
+
+## Lot duly-16 (14/11/2026) — Rôles et interfaces séparées
+| Rôle | Accès | Interdit |
+|---|---|---|
+| Ouvrier (créé par le producteur) | Accueil ouvrier (tâches), Diagnostic IA (rattaché à un champ, visible dans l'historique de l'employeur), Mes tâches (commencer/terminer avec remarque), Mes champs en lecture, journal de travaux du champ, Profil (changer mot de passe), Votre avis | Créer champ/ferme/troupeau, marché, appels d'offres, coopérative, intrants, équipe, produits, prévisions |
+| Acheteur | Accueil acheteur, Marché, Appels d'offres (les siens), Intrants, Profil, Votre avis | Ferme, élevage, carte, coopérative, équipe |
+| Producteur | Tout son espace : fermes, champs, élevage, équipe, produits/matériel, coopérative, marché (vente = PRO), PRO | Administration |
+| Admin / super admin | Tout + administration | — |
+- Garde-fou côté serveur : seul un producteur/admin peut créer une exploitation (policy farms_insert_owner). Champs/troupeaux/tâches/produits : propriétaire de la ferme uniquement (RLS déjà en place).
+- Garde-fou côté appli : un écran non autorisé pour le rôle retombe sur l'Accueil.
+- Limites : ouvrier = secteur agriculture seulement (pas d'élevage pour l'instant) ; 1 compte acheteur existant possède une ferme créée avant la règle (conservée).
+- À faire : « utilisateur » = producteur (abonnement PRO pour vendre) ; niveaux/abonnements à détailler dans le cahier des charges v3.
+
+## Lot duly-17 (14/11/2026)
+- Code d'invitation ouvrier : lien « J'ai reçu un code d'invitation » visible dans les onglets « Ouvrier / employé » ET « Créer un compte » (l'ouvrier saisit code + nom + e-mail + mot de passe). Recommandé : l'employeur crée le compte (téléphone) depuis Équipe.
+- Comité technique → onglet Membres (admin) : créer un membre (nom + e-mail + mot de passe provisoire affiché une fois), nouveau mot de passe, retirer ; limite serveur 15, recommandé 10-15 (Edge Function committee-members, admin uniquement). Retirer ne supprime pas le compte.
+- Mot de passe : bouton œil (afficher/masquer) sur tous les champs mot de passe.
+- Communauté : nouvel onglet visible (producteurs/admin) : questions, problèmes rencontrés, expériences, conseils, informations + réponses. Non modéré (avertissement affiché). Lecture seule pour les non-producteurs.
+- Rappel : le lot 16 (rôles) doit être en ligne pour que l'ouvrier ait son interface propre.
+
+## Lot duly-18 (14/11/2026)
+- Diagnostic IA rendu aux OUVRIERS (outil de terrain) : menu « Diagnostic IA », champ obligatoire, analyses visibles par le producteur dans son historique (RLS ai_diagnoses_select_member) ; photos lisibles par l'exploitant (policy storage diag_photos_select_farm). Sans clé Anthropic : seule la photo est archivée (« analyse non effectuée »).
