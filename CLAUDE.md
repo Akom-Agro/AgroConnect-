@@ -127,3 +127,21 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 
 ## Lot duly-18 (14/11/2026)
 - Diagnostic IA rendu aux OUVRIERS (outil de terrain) : menu « Diagnostic IA », champ obligatoire, analyses visibles par le producteur dans son historique (RLS ai_diagnoses_select_member) ; photos lisibles par l'exploitant (policy storage diag_photos_select_farm). Sans clé Anthropic : seule la photo est archivée (« analyse non effectuée »).
+
+## Lot duly-19 (14/11/2026) — Correctifs issus des 2 audits
+- Paiement simulé : DÉSACTIVÉ en base (sim_enabled=false). Interrupteur super-admin dans « Vue plateforme » → « Paiement simulé (tests uniquement) ».
+- Droits d'exécution : retirés au public (anon) sur seed_demo_data, purge_demo_data, approve_due_referrals, sim_confirm_payment ; coop_set_author fermée. Les aides is_admin/is_committee/is_pro/is_*member restent exécutables (nécessaires aux règles RLS) : retournent seulement vrai/faux.
+- Produits interdits : contrôle SERVEUR (trigger block_banned_inputs sur tasks, treatments, farm_inputs, à l'insertion ; liste = active_ingredients.legal_status='interdit' — encore seulement Carbofuran et Diméthoate, à compléter par le comité). Testé : refus d'un texte contenant « Carbofuran ».
+- Mot de passe provisoire : changement OBLIGATOIRE à la première connexion (ouvrier créé, réinitialisation, membre du comité) — drapeau must_change_password.
+- Traçabilité : audit_logs alimentée (create_worker, reset_worker_password, committee_add/remove/reset_password) ; colonne details.
+- Communauté : bouton « 🚩 Signaler » + table coop_reports ; file de modération dans l'espace super-admin.
+- IA : bandeau explicite « analyse automatique non disponible ».
+- Reste à faire (hors code) : sauvegardes testées (offre Pro), SMTP Brevo, mots de passe compromis (Pro), CGU/confidentialité, nommer le comité, purger la démo, nettoyer ferme du compte acheteur, supprimer Worker dulyahrovia, changer mots de passe provisoires, clé Anthropic, vrai Mobile Money, tests avec vrais ouvriers, test d'intrusion.
+- Déploiement : relier GitHub à Claude pour que le déploiement se fasse sans envoi manuel depuis le téléphone.
+
+## Lot duly-20 / V4-0 (14/11/2026) — Mise à niveau et inventaire
+- Remise à niveau de main.tsx, community.tsx et CLAUDE.md : lots 17 à 19 réellement présents sur GitHub (écran de changement de mot de passe obligatoire, file de signalements, interrupteur paiement simulé, bandeau IA).
+- Ajout (additif) : sources des 5 fonctions serveur dans supabase/functions/ ; journal des migrations dans docs/JOURNAL_MIGRATIONS_SUPABASE.md.
+- Déploiement : branche + pull request, validée par le promoteur (décision du 14/11).
+- Décisions promoteur : coop_offer_totals_public reste publique (totaux agrégés, vitrine) ; bucket product-labels reste public en lecture (écriture admin).
+- À faire (V4-1) : réserver sim_confirm_payment au super admin, grand livre de paiements, passage PRO uniquement par fonction serveur ; mot de passe de admin-create-producer via crypto ; quotas IA ; export SQL complet des migrations.

@@ -191,6 +191,12 @@ function CoopPosts({ db, profile, sector, setToast }: { db: DB; profile: Prof; s
     const { error } = await db.from(table).delete().eq('id', id);
     setToast(error ? error.message : 'Message supprimé.'); load();
   }
+  async function report(postId: string | null, replyId: string | null) {
+    const reason = window.prompt('Pourquoi signalez-vous ce message ? (ex : conseil dangereux, insulte, publicité)');
+    if (!reason || reason.trim().length < 3) return;
+    const { error } = await db.from('coop_reports').insert({ post_id: postId, reply_id: replyId, reason: reason.trim().slice(0, 300) });
+    setToast(error ? error.message : 'Merci, le message a été signalé à l’administrateur.');
+  }
   const shown = posts.filter(p => kind === 'tous' || p.kind === kind);
   return <>
     <div className="notice" style={{ marginTop: 12 }}>ℹ️ Échanges entre agriculteurs : <b>non modérés</b> et non validés par un comité. Vérifiez toujours un conseil (produits, doses) auprès d’un technicien agréé.</div>
@@ -209,7 +215,7 @@ function CoopPosts({ db, profile, sector, setToast }: { db: DB; profile: Prof; s
         <span className="badge green">{kindLabel[p.kind] || p.kind}</span>{p.is_demo && <span className="badge"> DÉMO</span>}
         <h3>{p.title}</h3><p style={{ whiteSpace: 'pre-wrap' }}>{p.body}</p>
         <small className="muted">{p.author_name || 'Producteur'} • {fmt(p.created_at)} • {rs.length} réponse(s)</small>
-        <div className="quick" style={{ marginTop: 6 }}><button className="secondary" onClick={() => { setOpenId(isOpen ? null : p.id); setReply(''); }}>{isOpen ? 'Masquer' : 'Voir / répondre'}</button>{(p.author_id === profile.id || isAdminRole(profile.role)) && <button className="secondary" onClick={() => del('coop_posts', p.id)}>Supprimer</button>}</div>
+        <div className="quick" style={{ marginTop: 6 }}><button className="secondary" onClick={() => { setOpenId(isOpen ? null : p.id); setReply(''); }}>{isOpen ? 'Masquer' : 'Voir / répondre'}</button>{(p.author_id === profile.id || isAdminRole(profile.role)) && <button className="secondary" onClick={() => del('coop_posts', p.id)}>Supprimer</button>}{p.author_id !== profile.id && <button className="secondary" onClick={() => report(p.id, null)}>🚩 Signaler</button>}</div>
         {isOpen && <div style={{ marginTop: 8 }}>
           {rs.map(r => <div key={r.id} className="notif"><span className="notificon">💬</span><div><b>{r.author_name || 'Producteur'}</b>{r.is_demo && <span className="badge"> DÉMO</span>}<p>{r.body}</p><small className="muted">{fmt(r.created_at)}</small>{(r.author_id === profile.id || isAdminRole(profile.role)) && <> <button className="linkbtn" onClick={() => del('coop_replies', r.id)}>Supprimer</button></>}</div></div>)}
           {canWrite && <div className="gpsrow"><label style={{ flex: 1 }}>Votre réponse<input maxLength={1000} value={reply} onChange={e => setReply(e.target.value)} /></label><button className="primary" disabled={busy || !reply.trim()} onClick={() => sendReply(p.id)}>Envoyer</button></div>}
