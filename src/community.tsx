@@ -6,7 +6,14 @@ type Prof = { id: string; role: string; plan: string; pro_expires_at: string | n
 const isAdminRole = (r?: string | null) => r === 'admin' || r === 'super_admin';
 const proActive = (p: Prof) => p.plan === 'pro' && (!p.pro_expires_at || new Date(p.pro_expires_at) > new Date());
 const fmt = (d: string | null) => (d ? new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(d.length === 10 ? d + 'T00:00:00' : d)) : '—');
-const kindLabel: Record<string, string> = { conseil: '💡 Conseil', question: '❓ Question', information: 'ℹ️ Information' };
+const kindLabel: Record<string, string> = { question: '❓ Question', probleme: '⚠️ Problème rencontré', experience: '🌾 Mon expérience (ça a marché / pas marché)', conseil: '💡 Conseil', information: 'ℹ️ Information' };
+
+export function Community({ db, profile, sector, setToast }: { db: DB; profile: Prof; sector: Sector; setToast: (s: string) => void }) {
+  return <>
+    <div className="pageintro"><div><span className="eyebrow">ENTRAIDE ENTRE AGRICULTEURS</span><h1>Communauté</h1><p>Posez une question, racontez un problème rencontré, partagez ce qui a marché ou non, et lisez les réponses des autres producteurs.</p></div></div>
+    <CoopPosts db={db} profile={profile} sector={sector} setToast={setToast} />
+  </>;
+}
 
 export function Cooperative({ db, profile, sector, setToast }: { db: DB; profile: Prof; sector: Sector; setToast: (s: string) => void }) {
   const [tab, setTab] = useState<'offres' | 'echanges'>('offres');
@@ -194,7 +201,7 @@ function CoopPosts({ db, profile, sector, setToast }: { db: DB; profile: Prof; s
       <label>Message<textarea required maxLength={2000} rows={3} value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} /></label>
       <p className="muted">Les conseils échangés ici viennent d’autres producteurs : ce ne sont pas des recommandations validées par le comité technique.</p>
     </div><button className="primary" disabled={busy}>Publier</button></form> : <p className="muted">Seuls les producteurs peuvent écrire ici ; vous pouvez lire les échanges.</p>}
-    <div className="toolstabs">{['tous', 'question', 'conseil', 'information'].map(k => <button key={k} className={kind === k ? 'selected' : ''} onClick={() => setKind(k)}>{k === 'tous' ? 'Tous' : kindLabel[k]}</button>)}</div>
+    <div className="toolstabs">{['tous', ...Object.keys(kindLabel)].map(k => <button key={k} className={kind === k ? 'selected' : ''} onClick={() => setKind(k)}>{k === 'tous' ? 'Tous' : kindLabel[k]}</button>)}</div>
     {loading ? <div className="loading">Chargement…</div> : shown.length ? <div className="tenderlist">{shown.map(p => {
       const rs = replies[p.id] || [];
       const isOpen = openId === p.id;

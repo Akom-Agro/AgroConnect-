@@ -34,7 +34,7 @@ export function FieldTools({ db, field, role, go }: { db: DB; field: any; role: 
     <div className="toolstabs">
       {tabs.map(([k, l]) => <button key={k} className={tab === k ? 'selected' : ''} onClick={() => setTab(k)}>{l}</button>)}
     </div>
-    {tab === 'journal' && <Journal db={db} field={field} />}
+    {tab === 'journal' && <Journal db={db} field={field} canManage={canManageTeam} />}
     {tab === 'calc' && <Calculators db={db} field={field} />}
     {tab === 'conseils' && <CropAdvice db={db} field={field} />}
     {tab === 'sante' && <FieldHealth db={db} field={field} role={role} go={go} />}
@@ -177,7 +177,7 @@ function ItemsPicker({ inputs, wt, picked, setPicked }: { inputs: any[]; wt: any
 }
 const itemsText = (items: any[]) => (items || []).map(i => `${i.name}${i.dose ? ' — ' + i.dose : ''}`).join(' ; ');
 
-function Journal({ db, field }: { db: DB; field: any }) {
+function Journal({ db, field, canManage = false }: { db: DB; field: any; canManage?: boolean }) {
   const [rows, setRows] = useState<any[]>([]);
   const [types, setTypes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -215,7 +215,7 @@ function Journal({ db, field }: { db: DB; field: any }) {
   return <>
     {blocked && <div className="notice">⏳ Ne pas récolter avant le <b>{fmt(blocked.pre_harvest_until)}</b> (délai avant récolte du dernier traitement).</div>}
     {upcoming && <div className="notice">🔁 Prochain travail récurrent : <b>{upcoming.r.work_types?.name || typeLabel[upcoming.r.type]}</b> le <b>{fmt(upcoming.next)}</b>.</div>}
-    <details style={{ marginBottom: 12 }}><summary><b>Mes produits et matériel ({inputs.length})</b></summary><FarmInputsManager db={db} farmId={field.farm_id} inputs={inputs} reload={reloadInputs} /></details>
+    {canManage && <details style={{ marginBottom: 12 }}><summary><b>Mes produits et matériel ({inputs.length})</b></summary><FarmInputsManager db={db} farmId={field.farm_id} inputs={inputs} reload={reloadInputs} /></details>}
     <form className="tender" onSubmit={save}>
       <div className="tendermain">
         <label>Travail réalisé<WorkTypeSelect types={types} value={f.wt} onChange={id => { setF({ ...f, wt: id }); setPicked([]); }} /></label>
@@ -572,21 +572,54 @@ function AdviceAdmin({ db, isCommittee }: { db: DB; isCommittee: boolean }) {
 
 function MembersAdmin({ db }: { db: DB }) {
   const [members, setMembers] = useState<any[]>([]);
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [pick, setPick] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  async function load() {
-    const [m, p] = await Promise.all([db.from('committee_members').select('user_id, profiles!committee_members_user_id_fkey(full_name)'), db.from('profiles').select('id, full_name, role')]);
-    setMembers(m.data || []); setProfiles(p.data || []);
+  const [nm, setNm] = useState({ name: '', email: '', phone: '' });
+  const [cred, setCred] = useState<{ login: string; password: string; name: string; reset?: boolean } | null>(null);
+  const MAX = 15, MIN = 10;
+  async function call(body: any) {
+    const { data, error } = await db.functions.invoke('committee-members', { body });
+    if (error || !data?.ok) { let m = data?.error || 'Action impossible.'; try { const j = await (error as any)?.context?.json?.(); if (j?.error) m = j.error; } catch { /* ignore */ } return { ok: false, error: m } as any; }
+    return data;
   }
+  async function load() { const r = await call({ action: 'list' }); if (r.ok) setMembers(r.members || []); else setMsg(r.error); setLoading(false); }
   useEffect(() => { load(); }, []);
-  async function add() { if (!pick) return; const { error } = await db.from('committee_members').insert({ user_id: pick }); setMsg(error ? error.message : 'Membre ajouté.'); setPick(''); load(); }
-  async function remove(id: string) { const { error } = await db.from('committee_members').delete().eq('user_id', id); setMsg(error ? error.message : 'Membre retiré.'); load(); }
-  const ids = new Set(members.map(m => m.user_id));
+  async function create(e: React.FormEvent) {
+    e.preventDefault(); setBusy(true); setMsg(''); setCred(null);
+    const r = await call({ action: 'create', full_name: nm.name, email: nm.email, phone: nm.phone });
+    setBusy(false);
+    if (!r.ok) { setMsg(r.error); return; }
+    setCred({ login: r.login, password: r.password, name: r.name }); setNm({ name: '', email: '', phone: '' }); load();
+  }
+  async function reset(m: any) {
+    if (!window.confirm(`Nouveau mot de passe pour ${m.name || m.email} ? L’ancien ne fonctionnera plus.`)) return;
+    setBusy(true); setMsg(''); setCred(null);
+    const r = await call({ action: 'reset', user_id: m.user_id }); setBusy(false);
+    if (!r.ok) { setMsg(r.error); return; }
+    setCred({ login: r.login, password: r.password, name: m.name || m.email, reset: true });
+  }
+  async function remove(m: any) {
+    if (!window.confirm(`Retirer ${m.name || m.email} du comité ? Il ne pourra plus valider de règle (son compte utilisateur reste).`)) return;
+    setBusy(true); setMsg('');
+    const r = await call({ action: 'remove', user_id: m.user_id }); setBusy(false);
+    setMsg(r.ok ? 'Membre retiré du comité.' : r.error); load();
+  }
+  const n = members.length;
+  const url = typeof location !== 'undefined' ? location.origin : '';
   return <>
-    <div className="tender"><div className="tendermain"><label>Ajouter un membre du comité<select value={pick} onChange={e => setPick(e.target.value)}><option value="">Choisir un utilisateur…</option>{profiles.filter(p => !ids.has(p.id)).map(p => <option key={p.id} value={p.id}>{p.full_name || p.id.slice(0, 8)} ({p.role})</option>)}</select></label></div><button className="primary" onClick={add}>Ajouter</button></div>
+    <div className="notice">Comité : <b>{n} / {MAX}</b> membre(s). Recommandé : de {MIN} à {MAX}. {n < MIN ? `Il en manque encore ${MIN - n} pour atteindre le minimum recommandé.` : 'Effectif conforme.'}</div>
+    <h3 style={{ marginTop: 12 }}>Ajouter un membre</h3>
+    <p className="muted">Vous créez son compte : il se connecte ensuite avec son e-mail et le mot de passe provisoire que vous lui remettez (onglet « Connexion »), puis voit « Comité technique » dans son menu.</p>
+    <form className="tender" onSubmit={create}><div className="tendermain">
+      <label>Nom complet<input required maxLength={80} value={nm.name} onChange={e => setNm({ ...nm, name: e.target.value })} /></label>
+      <label>E-mail (identifiant de connexion)<input type="email" required value={nm.email} onChange={e => setNm({ ...nm, email: e.target.value })} /></label>
+      <label>Téléphone (facultatif)<input inputMode="tel" value={nm.phone} onChange={e => setNm({ ...nm, phone: e.target.value })} /></label>
+    </div><button className="primary wide" style={{ minHeight: 48 }} disabled={busy || n >= MAX}>{n >= MAX ? 'Comité complet' : '＋ Créer le compte du membre'}</button></form>
+    {cred && <div className="notice">✅ {cred.reset ? 'Nouveau mot de passe pour' : 'Membre ajouté :'} <b>{cred.name}</b><br />Identifiant : <b>{cred.login}</b><br />Mot de passe provisoire : <b>{cred.password}</b><br /><small>Notez-le maintenant : il ne sera plus affiché. À transmettre au membre avec l’adresse {url}</small></div>}
     {msg && <div className="notice">{msg}</div>}
-    {members.length ? <div className="adminlist" style={{ marginTop: 12 }}>{members.map(m => <div key={m.user_id}><b>{m.profiles?.full_name || m.user_id.slice(0, 8)}</b><button className="secondary" onClick={() => remove(m.user_id)}>Retirer</button></div>)}</div> : <div className="empty"><p>Aucun membre du comité pour le moment : personne ne peut encore valider de règle.</p></div>}
+    <h3 style={{ marginTop: 16 }}>Membres actuels</h3>
+    {loading ? <div className="loading">Chargement…</div> : n ? <div className="adminlist">{members.map(m => <div key={m.user_id}><b>{m.name || '(sans nom)'}<br /><small className="muted">{m.email}{m.phone ? ` • ${m.phone}` : ''}</small></b><span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="secondary" disabled={busy} onClick={() => reset(m)}>🔑 Mot de passe</button><button className="secondary" disabled={busy} onClick={() => remove(m)}>Retirer</button></span></div>)}</div> : <div className="empty"><p>Aucun membre du comité pour le moment : personne ne peut encore valider de règle.</p></div>}
   </>;
 }
 
