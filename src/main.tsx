@@ -278,7 +278,7 @@ function Shell({profile,session,screen,setScreen,sector,setSector,selectedField,
  const secondary=((isFull?[['community','🗣','Communauté'],['coop','🤝','Coopérative'],['intrants','📦','Intrants'],['ai','✦',sector==='agriculture'?'AgroDoctor IA':'VétoDoctor IA'],['avis','💬','Votre avis']]:[['avis','💬','Votre avis']]) as [Screen,string,string][])
   .concat(profile.role==='producteur'?[['team','👥','Mon équipe'] as [Screen,string,string]]:[])
   .concat(profile.role==='producteur'&&isProActive(profile)?[['sales','💵','Mes ventes'] as [Screen,string,string]]:[])
-  .concat(profile.role==='producteur'?[['pro','★',isProActive(profile)?'Abonnement PRO':'Passer à PRO'] as [Screen,string,string]]:[])
+  .concat(['producteur','super_admin'].includes(profile.role)?[['pro','★',isProActive(profile)?'Abonnement PRO':(profile.role==='super_admin'?'Test paiement PRO':'Passer à PRO')] as [Screen,string,string]]:[])
   .concat(isAdminRole(profile.role)||isCommittee?[['committee','⚖','Comité technique'] as [Screen,string,string]]:[])
   .concat(isAdminRole(profile.role)?[['admin','🛡','Administration'] as [Screen,string,string]]:[])
   .concat([['notifications','◔','Notifications'] as [Screen,string,string],['profile','◯','Profil'] as [Screen,string,string]]);

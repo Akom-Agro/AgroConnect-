@@ -183,3 +183,7 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Secrets attendus (Supabase > Edge Functions > Secrets) : NOTCHPAY_SECRET_KEY (ou NOTCHPAY_KEY) et NOTCHPAY_HASH. URL du webhook à saisir dans Notch Pay : https://iexwjycgqmwodmuxfjqd.supabase.co/functions/v1/notchpay-webhook
 - NON TESTÉ de bout en bout (le bac à sable n'atteint pas Notch Pay) : format exact de la réponse/événements Notch à confirmer au premier paiement sandbox ; clé publique vs privée à confirmer.
 - Limite connue : la zone (local/international) est choisie par l'utilisateur côté écran ; à fiabiliser avant l'ouverture publique (live_enabled).
+
+
+## Lot duly-27 (15/11/2026) — Menu « Test paiement PRO » pour le super admin
+- Constat : le menu PRO n'existait que pour le rôle producteur, donc le super admin ne voyait pas le bouton Notch Pay (réservé à lui tant que live_enabled=false). Producteur : il ne voit que les boutons d'information, normal tant que le paiement n'est pas ouvert au public.
