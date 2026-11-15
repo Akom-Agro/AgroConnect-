@@ -738,6 +738,33 @@ function AdminCreateProducer(){
   {created&&<div className="notice">Compte créé. Identifiants à transmettre au producteur (à usage unique, non ré-affichables) :<br/><b>E-mail / identifiant :</b> {created.email}<br/><b>Mot de passe temporaire :</b> {created.temporaryPassword}<br/>Conseillez-lui de le changer dès sa première connexion.</div>}
  </Section>;
 }
+function AdminAccounts(){
+ const [list,setList]=useState<any[]>([]);const [q,setQ]=useState('');const [busy,setBusy]=useState(false);const [msg,setMsg]=useState('');const [cred,setCred]=useState<{login:string;password:string;name:string}|null>(null);const [loaded,setLoaded]=useState(false);
+ async function call(body:any){if(!supabase)return {ok:false,error:'Indisponible'} as any;const {data,error}=await supabase.functions.invoke('admin-manage-account',{body});
+  if(error||!data?.ok){let m=data?.error||'Action impossible.';try{const j=await (error as any)?.context?.json?.();if(j?.error)m=j.error}catch{}return {ok:false,error:m} as any}return data}
+ async function load(){const r=await call({action:'list'});if(r.ok)setList(r.users||[]);else setMsg(r.error);setLoaded(true)}
+ useEffect(()=>{load()},[]);
+ async function act(u:any,action:'reset'|'disable'|'enable'|'delete'){
+  const nm=u.name||u.email;
+  const texts:any={reset:`Générer un nouveau mot de passe pour ${nm} ? L’ancien ne fonctionnera plus.`,disable:`Désactiver le compte de ${nm} ? Il ne pourra plus se connecter (réversible, ses données sont conservées).`,enable:`Réactiver le compte de ${nm} ?`,delete:`SUPPRIMER DÉFINITIVEMENT le compte de ${nm} ? Cette action est irréversible.`};
+  if(!window.confirm(texts[action]))return;
+  if(action==='delete'&&!window.confirm('Dernière confirmation : suppression définitive de '+nm+'.'))return;
+  setBusy(true);setMsg('');setCred(null);const r=await call({action,user_id:u.id});setBusy(false);
+  if(!r.ok){setMsg(r.error);return}
+  if(action==='reset')setCred({login:r.login,password:r.password,name:nm});else setMsg(action==='delete'?'Compte supprimé.':action==='disable'?'Compte désactivé.':'Compte réactivé.');
+  load();
+ }
+ const shown=list.filter((u:any)=>`${u.name} ${u.email} ${u.phone}`.toLowerCase().includes(q.toLowerCase()));
+ return <Section title="Gérer les comptes (super administrateur)">
+  <p className="muted">Mot de passe perdu → « 🔑 Nouveau mot de passe » (affiché une seule fois, changement obligatoire à la première connexion). « Désactiver » bloque la connexion sans rien perdre. « Supprimer » n’est possible que pour un compte sans champs, troupeaux ni historique (paiements, ventes, PRO accordé) ; sinon, désactivez-le. Les comptes administrateurs ne sont pas gérables ici.</p>
+  {msg&&<div className="notice">{msg}</div>}
+  {cred&&<div className="notice"><b>Nouveau mot de passe de {cred.name}</b><br/>Identifiant : <b>{cred.login}</b><br/>Mot de passe : <b>{cred.password}</b><br/><small>Notez-le maintenant : il ne sera plus affiché.</small></div>}
+  <div className="search">⌕<input value={q} onChange={e=>setQ(e.target.value)} placeholder="Rechercher nom, e-mail ou téléphone…"/></div>
+  {!loaded?<div className="loading">Chargement…</div>:<div className="adminlist" style={{marginTop:12}}>{shown.map((u:any)=><div key={u.id}><b>{u.name||'—'} {u.disabled&&<span className="badge">DÉSACTIVÉ</span>}<br/><small className="muted">{u.email} • {u.role}{u.created_by_admin?' • créé par admin':''}</small></b>
+   {['admin','super_admin'].includes(u.role)?<span className="muted">—</span>:<span style={{display:'flex',gap:6,flexWrap:'wrap'}}><button className="secondary" disabled={busy} onClick={()=>act(u,'reset')}>🔑 Nouveau mot de passe</button><button className="secondary" disabled={busy} onClick={()=>act(u,u.disabled?'enable':'disable')}>{u.disabled?'Réactiver':'Désactiver'}</button><button className="secondary" disabled={busy} onClick={()=>act(u,'delete')}>Supprimer</button></span>}</div>)}</div>}
+ </Section>
+}
+
 function AdminMonetization(){
  const [pricing,setPricing]=useState<PricingConfig|null>(null);const [commission,setCommission]=useState<CommissionConfig|null>(null);
  const [refPrices,setRefPrices]=useState<ReferencePrice[]>([]);const [crops,setCrops]=useState<Crop[]>([]);const [livestockTypes,setLivestockTypes]=useState<LivestockType[]>([]);
@@ -838,7 +865,7 @@ function Admin(){const [stats,setStats]=useState({profiles:0,farms:0,tenders:0,f
  useEffect(()=>{(async()=>{if(!supabase)return;const {data}=await supabase.from('payment_gateway_config').select('sim_enabled').eq('id',1).maybeSingle();setSimOn(!!data?.sim_enabled)})()},[]);
  async function toggleSim(){if(!supabase)return;const next=!simOn;if(next&&!window.confirm('Activer le paiement SIMULÉ ? Tout utilisateur connecté pourra alors obtenir le PRO gratuitement. À réserver aux tests.'))return;const {error}=await supabase.from('payment_gateway_config').update({sim_enabled:next}).eq('id',1);if(!error)setSimOn(next);else alert(error.message)}
  const shown=users.filter((u:any)=>(u.full_name||'').toLowerCase().includes(q.toLowerCase())||(u.phone||'').includes(q));
- return <><div className="pageintro"><div><span className="eyebrow">SUPER ADMINISTRATEUR</span><h1>Vue plateforme</h1><p>Statistiques issues de la base réelle. Le rôle admin ne peut être attribué que manuellement dans Supabase, jamais par inscription publique.</p></div></div><div className="grid4"><Stat title="Utilisateurs" value={String(stats.profiles)} note="Profils enregistrés"/><Stat title="Fermes" value={String(stats.farms)} note="Exploitations"/><Stat title="Champs" value={String(stats.fields)} note="Parcelles"/><Stat title="Troupeaux" value={String(stats.herds)} note="Élevage"/></div><AdminDemo/><AdminCreateProducer/><AdminMonetization/><AdminMarketModeration/><AdminInputProducts/>
+ return <><div className="pageintro"><div><span className="eyebrow">SUPER ADMINISTRATEUR</span><h1>Vue plateforme</h1><p>Statistiques issues de la base réelle. Le rôle admin ne peut être attribué que manuellement dans Supabase, jamais par inscription publique.</p></div></div><div className="grid4"><Stat title="Utilisateurs" value={String(stats.profiles)} note="Profils enregistrés"/><Stat title="Fermes" value={String(stats.farms)} note="Exploitations"/><Stat title="Champs" value={String(stats.fields)} note="Parcelles"/><Stat title="Troupeaux" value={String(stats.herds)} note="Élevage"/></div><AdminDemo/><AdminCreateProducer/><AdminAccounts/><AdminMonetization/><AdminMarketModeration/><AdminInputProducts/>
  <Section title="Paiement simulé (tests uniquement)"><p className="muted">État actuel : <b>{simOn===null?'…':simOn?'ACTIVÉ — risque : PRO gratuit pour tous':'désactivé (recommandé)'}</b>. Laissez-le désactivé dès que de vrais utilisateurs sont inscrits.</p><button className={simOn?'primary':'secondary'} onClick={toggleSim}>{simOn?'Désactiver le paiement simulé':'Activer pour un test'}</button></Section>
  <AdminReports/>
  <Section title="Utilisateurs (lecture seule — 200 derniers)"><div className="search">⌕<input value={q} onChange={e=>setQ(e.target.value)} placeholder="Rechercher un nom ou téléphone…"/></div><div className="adminlist" style={{marginTop:12}}>{shown.map((u:any)=><div key={u.id}><b>{u.full_name||'—'} <span className="muted">({u.phone||'sans téléphone'})</span></b><span className={'badge '+(u.plan==='pro'?'green':'')}>{u.role.toUpperCase()} • {u.plan==='pro'?'PRO':'GRATUIT'}</span></div>)}</div><p className="muted">Changement de rôle/forçage de statut : à faire manuellement dans Supabase pour l’instant (pas encore d’action depuis cette interface).</p></Section>

@@ -169,3 +169,10 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - CAUSE : le mot de passe temporaire généré par admin-create-producer n'avait aucun symbole ; l'authentification (minuscule + majuscule + chiffre + symbole) le refusait → erreur 500, affichée « service non joignable ».
 - Corrigé : générateur garantissant les 4 classes dans admin-create-producer (déployée v6) ; même durcissement dans create-worker, reset-worker-password, committee-members (sources du dépôt ; à redéployer). Le message d'erreur réel de la fonction est maintenant affiché dans l'écran admin.
 - À tester par le promoteur : Administration → Créer un compte Producteur (avec PRO offert).
+
+
+## Lot duly-25 / V4-4 (15/11/2026) — Gestion des comptes (super admin)
+- Edge Function admin-manage-account (déployée v1, super_admin uniquement, tracée dans audit_logs) : liste des comptes, NOUVEAU MOT DE PASSE (mot de passe perdu), désactiver / réactiver (réversible), supprimer. Comptes admin/super_admin non gérables ; pas d'action sur son propre compte.
+- Suppression : refusée si le compte possède des champs/troupeaux, ou s'il a un historique (paiements, ventes, offres, PRO accordé : clés étrangères) → on désactive à la place. Choix volontaire : conserver l'historique financier.
+- Écran : Administration → « Gérer les comptes ». Comité : boutons « Retirer du comité » (le compte reste) et « Supprimer le compte ».
+- À tester par le promoteur : nouveau mot de passe du compte créé, suppression d'un compte de test vide.
