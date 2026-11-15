@@ -187,3 +187,9 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 
 ## Lot duly-27 (15/11/2026) — Menu « Test paiement PRO » pour le super admin
 - Constat : le menu PRO n'existait que pour le rôle producteur, donc le super admin ne voyait pas le bouton Notch Pay (réservé à lui tant que live_enabled=false). Producteur : il ne voit que les boutons d'information, normal tant que le paiement n'est pas ouvert au public.
+
+
+## Lot duly-29 (15/11/2026) — Notch Pay : clé publique, affichage des erreurs, menu
+- CAUSE du refus « Invalid API credentials » (401) : la doc Notch Pay demande la clé PUBLIQUE (pk_…) dans l'en-tête Authorization (la clé privée sk_… sert à X-Grant). Les fonctions utilisent désormais le secret NOTCHPAY_PUBLIC_KEY (ou NOTCHPAY_KEY s'il commence par pk_). NOTCHPAY_HASH reste la clé de signature du webhook. Fonctions redéployées (create v3, webhook v2).
+- Écran PRO : le message d'erreur/succès s'affiche maintenant juste sous « Moyen de paiement » (il était tout en bas de page, d'où « rien ne s'affiche »). Menu latéral (ordinateur) : entrée « Test paiement PRO » pour le super admin (existait seulement dans le menu « Plus » mobile).
+- Reste : premier paiement sandbox réussi à confirmer.

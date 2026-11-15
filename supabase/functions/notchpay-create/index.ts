@@ -8,6 +8,14 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 const SITE = 'https://agrivia.corsonservices.com';
 const NOTCH = 'https://api.notchpay.co';
 
+// Notch Pay : la clé PUBLIQUE (pk_...) va dans l'en-tête Authorization ; la clé privée (sk_...) n'est utilisée que pour X-Grant.
+function notchKey(): string {
+  const pub = Deno.env.get('NOTCHPAY_PUBLIC_KEY') || '';
+  if (pub) return pub;
+  for (const n of ['NOTCHPAY_KEY', 'NOTCHPAY_SECRET_KEY']) { const v = Deno.env.get(n) || ''; if (v.startsWith('pk_')) return v; }
+  return '';
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Méthode non autorisée' }, 405);
@@ -18,16 +26,16 @@ Deno.serve(async (req) => {
     if (!u?.user) return json({ error: 'Non connecté' }, 401);
     const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-    const secret = Deno.env.get('NOTCHPAY_SECRET_KEY') || Deno.env.get('NOTCHPAY_KEY') || '';
+    const secret = notchKey();
     const body = await req.json().catch(() => ({}));
 
     const { data: prof } = await admin.from('profiles').select('role, full_name, phone').eq('id', u.user.id).maybeSingle();
     const { data: gw } = await admin.from('payment_gateway_config').select('live_enabled').eq('id', 1).maybeSingle();
     const isSuper = prof?.role === 'super_admin';
-    if (body.action === 'status') return json({ ok: true, configured: !!secret, live_enabled: !!gw?.live_enabled, can_test: isSuper });
+    if (body.action === 'status') return json({ ok: true, configured: !!(secret || Deno.env.get('NOTCHPAY_KEY') || Deno.env.get('NOTCHPAY_SECRET_KEY')), live_enabled: !!gw?.live_enabled, can_test: isSuper });
     // Tant que le paiement réel n'est pas ouvert au public, seul le super admin peut tester (clés sandbox).
     if (!gw?.live_enabled && !isSuper) return json({ error: 'Le paiement en ligne n’est pas encore ouvert.' }, 403);
-    if (!secret) return json({ error: 'Passerelle non configurée (clé Notch Pay absente côté serveur).' }, 503);
+    if (!secret) return json({ error: 'Passerelle non configurée : la clé PUBLIQUE Notch Pay (pk_…) est absente. Ajoutez le secret NOTCHPAY_PUBLIC_KEY.' }, 503);
 
     const period = body.period === 'annuel' ? 'annuel' : 'mensuel';
     const zone = body.zone === 'intl' ? 'intl' : 'local';
