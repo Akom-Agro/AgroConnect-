@@ -156,3 +156,10 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Paiements : un paiement « réussi » ne peut passer qu'à « remboursé » ; « remboursé / échoué / annulé » sont définitifs (docs/migration_v4_2_transitions_paiement.sql, appliquée, testée).
 - Edge Function admin-create-producer v2 (déployée) : mot de passe par crypto, changement obligatoire à la première connexion, trace dans audit_logs, e-mail validé.
 - À faire : montant du paiement fixé côté serveur (tarifs à confirmer), passerelle Mobile Money (webhook signé), SMTP Brevo + anti-robot + MFA admin, protection mots de passe compromis (plan Pro Supabase), sauvegardes testées, test avec 2 producteurs réels.
+
+## Lot duly-23 / V4-3 (15/11/2026) — Correctif création d'ouvriers et de comptes
+- CAUSE 1 (création de producteur par l'admin, « message fermé ») : la fonction admin-create-producer refusait la requête de vérification du navigateur (OPTIONS → 405). Corrigé (CORS) et déployé ; même correctif sur diagnose-image (qui aurait bloqué l'analyse IA une fois la clé ajoutée).
+- CAUSE 2 (« Créer le compte » d'un ouvrier) : le numéro 652333783 (et 690215492) avait DÉJÀ un compte ouvrier (comptes de test précédents). create-worker v3 : si le compte existant est un ouvrier, il est rattaché à l'exploitation du producteur sans changer son mot de passe ; si c'est un autre type de compte (producteur, acheteur), message clair. Fonction SQL find_auth_user_id (service_role seulement).
+- CAUSE 3 (code d'invitation) : l'e-mail saisi était celui du producteur lui-même (compte existant) ; l'écran affichait « Compte créé » à tort. Corrigé : message « Cette adresse a déjà un compte, le code n'a PAS été utilisé » ; contrôles avant envoi (e-mail valide, mot de passe 8 caractères, code 6+, nom) car un champ vide partait au serveur (erreur « Anonymous sign-ins are disabled »).
+- Testé en base (annulé) : inscription acheteur, producteur, ouvrier par code → bons rôles et rattachement ; tentative super_admin → rétrogradée en producteur.
+- Rappel de test : pour tester une invitation par code, utiliser une adresse e-mail NEUVE (jamais déjà inscrite).

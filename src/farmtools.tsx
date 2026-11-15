@@ -691,6 +691,7 @@ function TeamTab({ db, field }: { db: DB; field: any }) {
     const { data, error } = await db.functions.invoke('create-worker', { body: { farm_id: field.farm_id, full_name: nw.name, phone: nw.phone, email: nw.email } });
     setBusy(false);
     if (error || !data?.ok) { let m = data?.error || 'Création impossible.'; try { const j = await (error as any)?.context?.json?.(); if (j?.error) m = j.error; } catch { /* ignore */ } setMsg(m); return; }
+    if (data.existing) { setMsg('✅ ' + (data.name || 'Cet ouvrier') + ' avait déjà un compte ouvrier : il est maintenant rattaché à votre exploitation. Il se connecte avec son mot de passe habituel (utilisez « Nouveau mot de passe » s’il l’a oublié).'); setNw({ name: '', phone: '', email: '' }); load(); return; }
     setCred({ login: data.login, password: data.password, name: data.name, phone: nw.phone }); setNw({ name: '', phone: '', email: '' }); load();
   }
   const nameOf = (userId: string | null) => {

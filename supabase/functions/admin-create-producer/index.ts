@@ -11,8 +11,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// V4-3 : le navigateur envoie une requête de vérification (OPTIONS) avant l'appel : sans réponse CORS, l'appel était bloqué
+// (« Failed to send a request to the Edge Function »). Même réglage que les autres fonctions de la plateforme.
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Connection": "keep-alive" } });
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Connection": "keep-alive" } });
 }
 
 function randomPassword() {
@@ -23,6 +26,7 @@ function randomPassword() {
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   // 1) Vérifie que l'appelant est authentifié ET a bien un rôle admin/super_admin

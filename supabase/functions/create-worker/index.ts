@@ -44,7 +44,18 @@ Deno.serve(async (req) => {
     if (ce) {
       await admin.from('worker_invites').delete().eq('id', inv.id);
       const dup = /already|registered|exists/i.test(ce.message);
-      return json({ error: dup ? 'Ce compte existe déjà (e-mail ou téléphone déjà utilisé)' : ce.message }, 400);
+      if (!dup) return json({ error: ce.message }, 400);
+      // v3 : le compte existe déjà. S'il s'agit d'un OUVRIER, on le rattache à cette exploitation (sans toucher à son mot de passe).
+      const { data: existingId } = await admin.rpc('find_auth_user_id', { p_login: login });
+      if (!existingId) return json({ error: 'Ce compte existe déjà (e-mail ou téléphone déjà utilisé)' }, 400);
+      const { data: ep } = await admin.from('profiles').select('role, full_name').eq('id', existingId).maybeSingle();
+      if (!ep || ep.role !== 'ouvrier') return json({ error: 'Cet e-mail ou ce numéro appartient déjà à un autre type de compte (producteur, acheteur…). Utilisez un autre identifiant.' }, 400);
+      const { data: already } = await admin.from('workers').select('id').eq('farm_id', farmId).eq('user_id', existingId).maybeSingle();
+      if (already) return json({ error: 'Cet ouvrier est déjà rattaché à votre exploitation.' }, 400);
+      const { error: we } = await admin.from('workers').insert({ farm_id: farmId, user_id: existingId, phone: phone || null });
+      if (we) return json({ error: we.message }, 400);
+      await admin.from('audit_logs').insert({ user_id: u.user.id, action: 'attach_existing_worker', table_name: 'workers', record_id: existingId, details: { farm_id: farmId } });
+      return json({ ok: true, existing: true, login, name: ep.full_name || fullName });
     }
     await admin.from('audit_logs').insert({ user_id: u.user.id, action: 'create_worker', table_name: 'workers', record_id: cu?.user?.id ?? null, details: { farm_id: farmId, name: fullName } });
     return json({ ok: true, login, password, name: fullName, invite_id: inv.id });
