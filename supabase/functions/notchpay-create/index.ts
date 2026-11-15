@@ -60,7 +60,9 @@ Deno.serve(async (req) => {
     const out: any = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       await admin.from('payment_intents').update({ status: 'failed' }).eq('id', intent.id);
-      return json({ error: 'Notch Pay a refusé la création du paiement.', detail: String(out?.message || resp.status).slice(0, 200) }, 502);
+      // Diagnostic (sans secret) : statut HTTP + message renvoyé par Notch Pay.
+      console.error('notchpay_create_refused', resp.status, JSON.stringify(out).slice(0, 500));
+      return json({ error: 'Notch Pay a refusé la création du paiement.', detail: `HTTP ${resp.status} — ${String(out?.message || out?.error || '').slice(0, 200)}` }, 502);
     }
     const ref = out?.transaction?.reference || out?.reference || null;
     await admin.from('payment_intents').update({ provider_reference: ref }).eq('id', intent.id);
