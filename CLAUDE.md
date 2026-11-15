@@ -163,3 +163,9 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - CAUSE 3 (code d'invitation) : l'e-mail saisi était celui du producteur lui-même (compte existant) ; l'écran affichait « Compte créé » à tort. Corrigé : message « Cette adresse a déjà un compte, le code n'a PAS été utilisé » ; contrôles avant envoi (e-mail valide, mot de passe 8 caractères, code 6+, nom) car un champ vide partait au serveur (erreur « Anonymous sign-ins are disabled »).
 - Testé en base (annulé) : inscription acheteur, producteur, ouvrier par code → bons rôles et rattachement ; tentative super_admin → rétrogradée en producteur.
 - Rappel de test : pour tester une invitation par code, utiliser une adresse e-mail NEUVE (jamais déjà inscrite).
+
+
+## Lot duly-24 / V4-3b (15/11/2026) — Création de producteur par l'admin
+- CAUSE : le mot de passe temporaire généré par admin-create-producer n'avait aucun symbole ; l'authentification (minuscule + majuscule + chiffre + symbole) le refusait → erreur 500, affichée « service non joignable ».
+- Corrigé : générateur garantissant les 4 classes dans admin-create-producer (déployée v6) ; même durcissement dans create-worker, reset-worker-password, committee-members (sources du dépôt ; à redéployer). Le message d'erreur réel de la fonction est maintenant affiché dans l'écran admin.
+- À tester par le promoteur : Administration → Créer un compte Producteur (avec PRO offert).

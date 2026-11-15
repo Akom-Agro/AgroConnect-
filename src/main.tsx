@@ -720,7 +720,7 @@ function AdminCreateProducer(){
  async function submit(e:React.FormEvent){e.preventDefault();if(!supabase)return;setBusy(true);setError('');setCreated(null);
   const {data,error:fnError}=await supabase.functions.invoke('admin-create-producer',{body:{fullName:form.fullName,phone:form.phone||undefined,email:form.email||undefined,grantPro:form.grantPro,proType:form.proType,proReason:form.proReason||undefined,proDurationDays:Number(form.proDurationDays)}});
   setBusy(false);
-  if(fnError){setError('Le service n’est pas joignable pour le moment.');return}
+  if(fnError){let m='Le service n’est pas joignable pour le moment.';try{const b=await (fnError as any).context?.json?.();if(b?.message||b?.error)m=String(b.message||b.error)}catch{}setError(m);return}
   if(data?.error){setError(data.message||'Création impossible.');return}
   setCreated(data.result);setForm({fullName:'',phone:'',email:'',grantPro:false,proType:'offert',proReason:'',proDurationDays:'30'});
  }

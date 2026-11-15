@@ -19,10 +19,13 @@ function json(body: unknown, status = 200) {
 }
 
 function randomPassword() {
-  // V4-2 : tirage cryptographique (crypto.getRandomValues), plus Math.random.
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  const r = crypto.getRandomValues(new Uint8Array(12));
-  return Array.from(r).map((x) => chars[x % chars.length]).join("");
+  // V4-3 : la politique d'authentification exige minuscule + majuscule + chiffre + symbole. On les garantit.
+  const pick = (set: string) => set[crypto.getRandomValues(new Uint32Array(1))[0] % set.length];
+  const lower = "abcdefghjkmnpqrstuvwxyz", upper = "ABCDEFGHJKLMNPQRSTUVWXYZ", digits = "23456789", all = lower + upper + digits;
+  const chars = [pick(lower), pick(upper), pick(digits), pick("-_!#")];
+  for (let i = 0; i < 8; i++) chars.push(pick(all));
+  for (let i = chars.length - 1; i > 0; i--) { const k = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1); [chars[i], chars[k]] = [chars[k], chars[i]]; }
+  return chars.join("");
 }
 
 Deno.serve(async (req: Request) => {
@@ -61,7 +64,10 @@ Deno.serve(async (req: Request) => {
     email_confirm: true,
     user_metadata: { full_name: String(fullName).trim().slice(0, 80), phone: phone || null, role: "producteur", created_by_admin: callerData.user.id, must_change_password: true },
   });
-  if (createErr || !created?.user) return json({ error: "create_failed", message: createErr?.message || "Création du compte impossible." }, 500);
+  if (createErr || !created?.user) {
+    const dup = /already|registered|exists/i.test(createErr?.message || "");
+    return json({ error: "create_failed", message: dup ? "Cette adresse e-mail ou ce numéro a déjà un compte." : (createErr?.message || "Création du compte impossible.") }, 400);
+  }
 
   // 3) PRO offert/sponsorisé/exonéré, avec motif et traçabilité obligatoires.
   if (grantPro) {
