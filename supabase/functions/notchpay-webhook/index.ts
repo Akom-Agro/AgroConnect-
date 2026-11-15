@@ -4,6 +4,14 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const NOTCH = 'https://api.notchpay.co';
+
+// Notch Pay : la clé PUBLIQUE (pk_...) va dans l'en-tête Authorization ; la clé privée (sk_...) n'est utilisée que pour X-Grant.
+function notchKey(): string {
+  const pub = Deno.env.get('NOTCHPAY_PUBLIC_KEY') || '';
+  if (pub) return pub;
+  for (const n of ['NOTCHPAY_KEY', 'NOTCHPAY_SECRET_KEY']) { const v = Deno.env.get(n) || ''; if (v.startsWith('pk_')) return v; }
+  return '';
+}
 const ok = (b: unknown = { ok: true }, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } });
 
 async function hmacHex(key: string, data: string) {
@@ -17,7 +25,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return ok({ error: 'method' }, 405);
   const raw = await req.text();
   const hash = Deno.env.get('NOTCHPAY_HASH') || Deno.env.get('NOTCHPAY_HASH_KEY') || '';
-  const secret = Deno.env.get('NOTCHPAY_SECRET_KEY') || Deno.env.get('NOTCHPAY_KEY') || '';
+  const secret = notchKey();
   if (!hash || !secret) return ok({ error: 'not_configured' }, 503);
   const got = (req.headers.get('x-notch-signature') || '').trim().toLowerCase();
   const exp = await hmacHex(hash, raw);
