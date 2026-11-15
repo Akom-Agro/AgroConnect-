@@ -605,6 +605,13 @@ function MembersAdmin({ db }: { db: DB }) {
     const r = await call({ action: 'remove', user_id: m.user_id }); setBusy(false);
     setMsg(r.ok ? 'Membre retiré du comité.' : r.error); load();
   }
+  async function delAccount(m: any) {
+    if (!window.confirm(`SUPPRIMER le compte de ${m.name || m.email} ? Il sera aussi retiré du comité. Irréversible. Si le compte a un historique, la suppression sera refusée (retirez-le alors simplement du comité).`)) return;
+    setBusy(true); setMsg('');
+    const { data, error } = await db.functions.invoke('admin-manage-account', { body: { action: 'delete', user_id: m.user_id } });
+    let e = data?.error || ''; if (error) { try { const j = await (error as any)?.context?.json?.(); if (j?.error) e = j.error; } catch { e = e || 'Action impossible.'; } }
+    setBusy(false); setMsg(!error && data?.ok ? 'Compte supprimé.' : (e || 'Action impossible.')); load();
+  }
   const n = members.length;
   const url = typeof location !== 'undefined' ? location.origin : '';
   return <>
@@ -619,7 +626,7 @@ function MembersAdmin({ db }: { db: DB }) {
     {cred && <div className="notice">✅ {cred.reset ? 'Nouveau mot de passe pour' : 'Membre ajouté :'} <b>{cred.name}</b><br />Identifiant : <b>{cred.login}</b><br />Mot de passe provisoire : <b>{cred.password}</b><br /><small>Notez-le maintenant : il ne sera plus affiché. À transmettre au membre avec l’adresse {url}</small></div>}
     {msg && <div className="notice">{msg}</div>}
     <h3 style={{ marginTop: 16 }}>Membres actuels</h3>
-    {loading ? <div className="loading">Chargement…</div> : n ? <div className="adminlist">{members.map(m => <div key={m.user_id}><b>{m.name || '(sans nom)'}<br /><small className="muted">{m.email}{m.phone ? ` • ${m.phone}` : ''}</small></b><span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="secondary" disabled={busy} onClick={() => reset(m)}>🔑 Mot de passe</button><button className="secondary" disabled={busy} onClick={() => remove(m)}>Retirer</button></span></div>)}</div> : <div className="empty"><p>Aucun membre du comité pour le moment : personne ne peut encore valider de règle.</p></div>}
+    {loading ? <div className="loading">Chargement…</div> : n ? <div className="adminlist">{members.map(m => <div key={m.user_id}><b>{m.name || '(sans nom)'}<br /><small className="muted">{m.email}{m.phone ? ` • ${m.phone}` : ''}</small></b><span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="secondary" disabled={busy} onClick={() => reset(m)}>🔑 Mot de passe</button><button className="secondary" disabled={busy} onClick={() => remove(m)}>Retirer du comité</button><button className="secondary" disabled={busy} onClick={() => delAccount(m)}>Supprimer le compte</button></span></div>)}</div> : <div className="empty"><p>Aucun membre du comité pour le moment : personne ne peut encore valider de règle.</p></div>}
   </>;
 }
 
