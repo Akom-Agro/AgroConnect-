@@ -145,3 +145,8 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Déploiement : branche + pull request, validée par le promoteur (décision du 14/11).
 - Décisions promoteur : coop_offer_totals_public reste publique (totaux agrégés, vitrine) ; bucket product-labels reste public en lecture (écriture admin).
 - À faire (V4-1) : réserver sim_confirm_payment au super admin, grand livre de paiements, passage PRO uniquement par fonction serveur ; mot de passe de admin-create-producer via crypto ; quotas IA ; export SQL complet des migrations.
+
+## Lot duly-21 / V4-1 (15/11/2026) — Sécurité des paiements (partie 1, appliquée en base)
+- FAILLE CRITIQUE CORRIGÉE : tout connecté pouvait se donner le PRO (modifier plan / pro_expires_at / referral_code de son profil). Désormais l'utilisateur ne peut modifier que nom, téléphone, pays, ville. Testé : plan, pro_expires_at, referral_code et role refusés ; ville acceptée.
+- Journal de paiement : l'acteur (identifiant) est tracé à chaque changement de statut ; le PRO n'est accordé qu'au passage vers « successful » (testé : admin → PRO accordé, journal avec acteur). Migration : docs/migration_v4_1_profiles_paiement.sql.
+- Restent à faire (V4-1 partie 2) : montant du paiement fixé côté serveur (la grille pricing_config dépend de la région, tarifs à confirmer) ; interdire le retour de « successful » vers « pending » ; vraie passerelle avec webhook signé et idempotence ; sim_confirm_payment reste limité au propriétaire du paiement et inactif tant que sim_enabled=false.
