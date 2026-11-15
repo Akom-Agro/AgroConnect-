@@ -176,3 +176,10 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - Suppression : refusée si le compte possède des champs/troupeaux, ou s'il a un historique (paiements, ventes, offres, PRO accordé : clés étrangères) → on désactive à la place. Choix volontaire : conserver l'historique financier.
 - Écran : Administration → « Gérer les comptes ». Comité : boutons « Retirer du comité » (le compte reste) et « Supprimer le compte ».
 - À tester par le promoteur : nouveau mot de passe du compte créé, suppression d'un compte de test vide.
+
+
+## Lot duly-26 / V4-5 (15/11/2026) — Notch Pay (sandbox), partie 2 du lot paiements
+- Edge Functions déployées : notchpay-create (JWT ; montant lu dans pricing_config côté serveur ; bloquée pour le public tant que payment_gateway_config.live_enabled=false, seul le super admin teste) et notchpay-webhook (sans JWT ; signature HMAC-SHA256 x-notch-signature + revérification du paiement via l'API Notch + contrôle du montant ; idempotente). Le PRO est accordé par le déclencheur existant au passage « successful ». Migration docs/migration_v4_5_notchpay.sql (provider notchpay), appliquée.
+- Secrets attendus (Supabase > Edge Functions > Secrets) : NOTCHPAY_SECRET_KEY (ou NOTCHPAY_KEY) et NOTCHPAY_HASH. URL du webhook à saisir dans Notch Pay : https://iexwjycgqmwodmuxfjqd.supabase.co/functions/v1/notchpay-webhook
+- NON TESTÉ de bout en bout (le bac à sable n'atteint pas Notch Pay) : format exact de la réponse/événements Notch à confirmer au premier paiement sandbox ; clé publique vs privée à confirmer.
+- Limite connue : la zone (local/international) est choisie par l'utilisateur côté écran ; à fiabiliser avant l'ouverture publique (live_enabled).
