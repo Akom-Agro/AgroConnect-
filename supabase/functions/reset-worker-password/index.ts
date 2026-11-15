@@ -4,9 +4,13 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 function genPassword() {
-  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-  const r = crypto.getRandomValues(new Uint8Array(10));
-  return Array.from(r).map(x => a[x % a.length]).join('') + '-' + (10 + (r[0] % 89));
+  // Garantit minuscule + majuscule + chiffre + symbole (politique d'authentification).
+  const pick = (set: string) => set[crypto.getRandomValues(new Uint32Array(1))[0] % set.length];
+  const lower = 'abcdefghijkmnopqrstuvwxyz', upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ', digits = '23456789', all = lower + upper + digits;
+  const c = [pick(lower), pick(upper), pick(digits), pick('-_!#')];
+  for (let i = 0; i < 8; i++) c.push(pick(all));
+  for (let i = c.length - 1; i > 0; i--) { const k = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1); [c[i], c[k]] = [c[k], c[i]]; }
+  return c.join('');
 }
 
 Deno.serve(async (req) => {
