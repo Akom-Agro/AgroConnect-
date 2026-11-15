@@ -16,10 +16,10 @@ function json(body: unknown, status = 200) {
 }
 
 function randomPassword() {
+  // V4-2 : tirage cryptographique (crypto.getRandomValues), plus Math.random.
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  let out = "";
-  for (let i = 0; i < 12; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
+  const r = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(r).map((x) => chars[x % chars.length]).join("");
 }
 
 Deno.serve(async (req: Request) => {
@@ -42,6 +42,7 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json(); } catch { return json({ error: "invalid_body" }, 400); }
   const { fullName, phone, email, grantPro, proReason, proDurationDays, proType } = body ?? {};
   if (!fullName || !String(fullName).trim()) return json({ error: "missing_fields", message: "Le nom complet est obligatoire." }, 400);
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email).trim())) return json({ error: "invalid_email", message: "Adresse e-mail invalide." }, 400);
   if (grantPro && (!proReason || !String(proReason).trim())) return json({ error: "missing_reason", message: "Un motif est obligatoire pour accorder un PRO manuellement." }, 400);
 
   // 2) Crée le compte. Si aucun e-mail n'est fourni (producteur sans e-mail), on génère
@@ -54,7 +55,7 @@ Deno.serve(async (req: Request) => {
     email: effectiveEmail,
     password: tempPassword,
     email_confirm: true,
-    user_metadata: { full_name: fullName, phone: phone || null, role: "producteur", created_by_admin: callerData.user.id },
+    user_metadata: { full_name: String(fullName).trim().slice(0, 80), phone: phone || null, role: "producteur", created_by_admin: callerData.user.id, must_change_password: true },
   });
   if (createErr || !created?.user) return json({ error: "create_failed", message: createErr?.message || "Création du compte impossible." }, 500);
 
@@ -71,6 +72,8 @@ Deno.serve(async (req: Request) => {
       duration_days: days,
     });
   }
+
+  await admin.from("audit_logs").insert({ user_id: callerData.user.id, action: "admin_create_producer", table_name: "profiles", record_id: created.user.id, details: { grantPro: !!grantPro } });
 
   return json({ result: { userId: created.user.id, email: effectiveEmail, temporaryPassword: tempPassword } });
 });

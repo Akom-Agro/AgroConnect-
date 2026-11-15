@@ -150,3 +150,9 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - FAILLE CRITIQUE CORRIGÉE : tout connecté pouvait se donner le PRO (modifier plan / pro_expires_at / referral_code de son profil). Désormais l'utilisateur ne peut modifier que nom, téléphone, pays, ville. Testé : plan, pro_expires_at, referral_code et role refusés ; ville acceptée.
 - Journal de paiement : l'acteur (identifiant) est tracé à chaque changement de statut ; le PRO n'est accordé qu'au passage vers « successful » (testé : admin → PRO accordé, journal avec acteur). Migration : docs/migration_v4_1_profiles_paiement.sql.
 - Restent à faire (V4-1 partie 2) : montant du paiement fixé côté serveur (la grille pricing_config dépend de la région, tarifs à confirmer) ; interdire le retour de « successful » vers « pending » ; vraie passerelle avec webhook signé et idempotence ; sim_confirm_payment reste limité au propriétaire du paiement et inactif tant que sim_enabled=false.
+
+## Lot duly-22 / V4-2 (15/11/2026) — Droits d'accès testés, création de producteur durcie
+- Tests de droits par rôle sur les vrais comptes : voir docs/RAPPORT_TESTS_DROITS_V4_2.md (tous conformes).
+- Paiements : un paiement « réussi » ne peut passer qu'à « remboursé » ; « remboursé / échoué / annulé » sont définitifs (docs/migration_v4_2_transitions_paiement.sql, appliquée, testée).
+- Edge Function admin-create-producer v2 (déployée) : mot de passe par crypto, changement obligatoire à la première connexion, trace dans audit_logs, e-mail validé.
+- À faire : montant du paiement fixé côté serveur (tarifs à confirmer), passerelle Mobile Money (webhook signé), SMTP Brevo + anti-robot + MFA admin, protection mots de passe compromis (plan Pro Supabase), sauvegardes testées, test avec 2 producteurs réels.
