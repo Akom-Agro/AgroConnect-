@@ -33,6 +33,30 @@ Deno.serve(async (req) => {
     const { data: gw } = await admin.from('payment_gateway_config').select('live_enabled').eq('id', 1).maybeSingle();
     const isSuper = prof?.role === 'super_admin';
     if (body.action === 'status') return json({ ok: true, configured: !!(secret || Deno.env.get('NOTCHPAY_KEY') || Deno.env.get('NOTCHPAY_SECRET_KEY')), live_enabled: !!gw?.live_enabled, can_test: isSuper });
+    // Vérification à la demande (au retour de Notch Pay, ou bouton « Vérifier mon paiement ») : filet de sécurité si le webhook tarde.
+    if (body.action === 'verify') {
+      if (!secret) return json({ error: 'Passerelle non configurée.' }, 503);
+      const { data: it } = await admin.from('payment_intents').select('*').eq('user_id', u.user.id).eq('provider', 'notchpay').not('provider_reference', 'is', null).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (!it) return json({ ok: true, state: 'none' });
+      if (it.status === 'successful') return json({ ok: true, state: 'successful' });
+      if (it.status !== 'pending') return json({ ok: true, state: it.status });
+      const r = await fetch(`${NOTCH}/payments/${encodeURIComponent(it.provider_reference)}`, { headers: { Authorization: secret, Accept: 'application/json' } });
+      const v: any = await r.json().catch(() => ({}));
+      const t = v?.transaction || v;
+      const st = String(t?.status || '').toLowerCase();
+      if (!r.ok) { console.error('notchpay_verify_failed', r.status, JSON.stringify(v).slice(0, 300)); return json({ ok: true, state: 'pending' }); }
+      if (['complete', 'completed', 'success', 'successful'].includes(st)) {
+        const paid = Number(t?.amount ?? 0);
+        if (paid && Math.abs(paid - Number(it.amount)) > 0.5) { await admin.from('audit_logs').insert({ user_id: u.user.id, action: 'notchpay_amount_mismatch', table_name: 'payment_intents', record_id: it.id, details: { expected: it.amount, got: paid } }); return json({ ok: true, state: 'pending' }); }
+        const { error: ue } = await admin.from('payment_intents').update({ status: 'successful' }).eq('id', it.id).eq('status', 'pending');
+        return json({ ok: true, state: ue ? 'pending' : 'successful' });
+      }
+      if (['failed', 'canceled', 'cancelled', 'expired'].includes(st)) {
+        await admin.from('payment_intents').update({ status: st === 'failed' ? 'failed' : 'cancelled' }).eq('id', it.id).eq('status', 'pending');
+        return json({ ok: true, state: st === 'failed' ? 'failed' : 'cancelled' });
+      }
+      return json({ ok: true, state: 'pending', notch_status: st });
+    }
     // Tant que le paiement réel n'est pas ouvert au public, seul le super admin peut tester (clés sandbox).
     if (!gw?.live_enabled && !isSuper) return json({ error: 'Le paiement en ligne n’est pas encore ouvert.' }, 403);
     if (!secret) return json({ error: 'Passerelle non configurée : la clé PUBLIQUE Notch Pay (pk_…) est absente. Ajoutez le secret NOTCHPAY_PUBLIC_KEY.' }, 503);

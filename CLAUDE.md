@@ -193,3 +193,8 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - CAUSE du refus « Invalid API credentials » (401) : la doc Notch Pay demande la clé PUBLIQUE (pk_…) dans l'en-tête Authorization (la clé privée sk_… sert à X-Grant). Les fonctions utilisent désormais le secret NOTCHPAY_PUBLIC_KEY (ou NOTCHPAY_KEY s'il commence par pk_). NOTCHPAY_HASH reste la clé de signature du webhook. Fonctions redéployées (create v3, webhook v2).
 - Écran PRO : le message d'erreur/succès s'affiche maintenant juste sous « Moyen de paiement » (il était tout en bas de page, d'où « rien ne s'affiche »). Menu latéral (ordinateur) : entrée « Test paiement PRO » pour le super admin (existait seulement dans le menu « Plus » mobile).
 - Reste : premier paiement sandbox réussi à confirmer.
+
+
+## Lot duly-30 (16/11/2026) — Notch Pay : vérification à la demande
+- CONSTAT honnête : la création du paiement Notch Pay FONCTIONNE (référence trx.test_… obtenue, page de paiement ouverte). Mais aucune notification n'est arrivée au webhook (seulement 2 GET 405 le 15/11 à 20:23 UTC) : le paiement test reste « pending » et le compte super admin n'est pas devenu PRO. Le PRO n'est donc PAS encore confirmé de bout en bout.
+- Ajout : action « verify » (notchpay-create v5) + bouton « Vérifier mon paiement » + vérification automatique au retour (?paiement=retour) : interroge Notch Pay pour le dernier paiement de l'utilisateur et active le PRO si « complete » (montant contrôlé). Le webhook reste le chemin principal ; à vérifier : adresse du webhook enregistrée côté Notch (mode sandbox) et événements cochés (payment.complete…).
