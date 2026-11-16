@@ -209,3 +209,8 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 - notchpay-create v6 : la zone (local / international) est décidée par le serveur d'après le pays du profil (Cameroun, Gabon, Congo, Tchad, Centrafrique, Guinée équatoriale ou pays vide = local ; sinon international) ; le navigateur ne la choisit plus (seul le super admin peut la forcer pour tester). Écran PRO : sélecteur de zone visible du super admin seulement.
 - Limite honnête : le pays du profil reste modifiable par l'utilisateur (nom, téléphone, pays, ville) ; contrôle de cohérence à renforcer avant l'ouverture publique (ex. pays figé après inscription, ou vérification du moyen de paiement).
 - Cartes Orange/MTN/Stripe (demande manuelle) : affichées seulement tant que le paiement Notch n'est pas ouvert à l'utilisateur ; elles disparaîtront d'elles-mêmes à l'ouverture (live_enabled).
+
+
+## Lot duly-33 / V4-6 (16/11/2026) — Pays figé
+- Le pays du profil (qui décide la zone tarifaire PRO) n'est plus modifiable par l'utilisateur (droit UPDATE retiré, migration docs/migration_v4_6_pays_non_modifiable.sql, appliquée). Testé en base : pays refusé, ville acceptée. L'interface ne modifiait déjà pas le pays.
+- Limite honnête : tous les comptes actuels sont « Cameroun » (valeur par défaut) ; l'inscription ne demande pas le pays. À faire avant l'ouverture à l'international : choix du pays à l'inscription.

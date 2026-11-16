@@ -54,3 +54,5 @@ Les migrations des 11 et 12 novembre (catalogue engrais, démonstration, fiche p
 - `coop_offer_totals_public` : exécutable sans connexion, voulu (vitrine) ; ne renvoie que des totaux agrégés (kg engagés, nombre de producteurs) des offres ouvertes. DÉCISION promoteur : conservée.
 - Bucket `product-labels` public en lecture, écriture réservée à l'admin (politiques RLS). DÉCISION promoteur : conservé.
 - Points à traiter (lot V4-1/V4-2) : `admin-create-producer` génère le mot de passe avec Math.random (à remplacer par crypto.getRandomValues) et n'impose pas le changement à la première connexion ; `diagnose-image` n'a pas de quota ni de plafond de budget ; protection contre les mots de passe compromis désactivée (offre Pro).
+
+- 16/11/2026 — v4_5_notchpay_provider (provider notchpay autorisé) ; v4_6_pays_non_modifiable (UPDATE du pays retiré aux utilisateurs connectés). Testé en base : modification du pays refusée, ville acceptée.
