@@ -198,3 +198,8 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 ## Lot duly-30 (16/11/2026) — Notch Pay : vérification à la demande
 - CONSTAT honnête : la création du paiement Notch Pay FONCTIONNE (référence trx.test_… obtenue, page de paiement ouverte). Mais aucune notification n'est arrivée au webhook (seulement 2 GET 405 le 15/11 à 20:23 UTC) : le paiement test reste « pending » et le compte super admin n'est pas devenu PRO. Le PRO n'est donc PAS encore confirmé de bout en bout.
 - Ajout : action « verify » (notchpay-create v5) + bouton « Vérifier mon paiement » + vérification automatique au retour (?paiement=retour) : interroge Notch Pay pour le dernier paiement de l'utilisateur et active le PRO si « complete » (montant contrôlé). Le webhook reste le chemin principal ; à vérifier : adresse du webhook enregistrée côté Notch (mode sandbox) et événements cochés (payment.complete…).
+
+
+## Lot duly-31 (16/11/2026) — Notch Pay sandbox : PRO confirmé via « Vérifier mon paiement »
+- VALIDÉ (testé par le promoteur + vérifié en base) : paiement sandbox 2000 XAF « terminé » chez Notch → payment_intents « successful » (16/11 03:36 UTC) → compte passé PRO 30 jours, via l'action verify. Le chemin webhook reste NON confirmé (aucun POST reçu) : à tester avec un nouveau paiement après vérification de l'adresse du webhook dans Notch.
+- Reste avant l'ouverture publique (live_enabled) : clés LIVE Notch (secrets), webhook confirmé, zone tarifaire non modifiable côté client, retrait des cartes d'information Orange/MTN/Stripe, test remboursement/échec.
