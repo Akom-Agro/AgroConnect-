@@ -203,3 +203,9 @@ React + Vite + TypeScript (`src/main.tsx`, `src/farmtools.tsx`, `src/agrocalc.ts
 ## Lot duly-31 (16/11/2026) — Notch Pay sandbox : PRO confirmé via « Vérifier mon paiement »
 - VALIDÉ (testé par le promoteur + vérifié en base) : paiement sandbox 2000 XAF « terminé » chez Notch → payment_intents « successful » (16/11 03:36 UTC) → compte passé PRO 30 jours, via l'action verify. Le chemin webhook reste NON confirmé (aucun POST reçu) : à tester avec un nouveau paiement après vérification de l'adresse du webhook dans Notch.
 - Reste avant l'ouverture publique (live_enabled) : clés LIVE Notch (secrets), webhook confirmé, zone tarifaire non modifiable côté client, retrait des cartes d'information Orange/MTN/Stripe, test remboursement/échec.
+
+
+## Lot duly-32 (16/11/2026) — Zone tarifaire côté serveur, cartes d'information
+- notchpay-create v6 : la zone (local / international) est décidée par le serveur d'après le pays du profil (Cameroun, Gabon, Congo, Tchad, Centrafrique, Guinée équatoriale ou pays vide = local ; sinon international) ; le navigateur ne la choisit plus (seul le super admin peut la forcer pour tester). Écran PRO : sélecteur de zone visible du super admin seulement.
+- Limite honnête : le pays du profil reste modifiable par l'utilisateur (nom, téléphone, pays, ville) ; contrôle de cohérence à renforcer avant l'ouverture publique (ex. pays figé après inscription, ou vérification du moyen de paiement).
+- Cartes Orange/MTN/Stripe (demande manuelle) : affichées seulement tant que le paiement Notch n'est pas ouvert à l'utilisateur ; elles disparaîtront d'elles-mêmes à l'ouverture (live_enabled).
