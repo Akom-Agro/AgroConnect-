@@ -62,7 +62,12 @@ Deno.serve(async (req) => {
     if (!secret) return json({ error: 'Passerelle non configurée : la clé PUBLIQUE Notch Pay (pk_…) est absente. Ajoutez le secret NOTCHPAY_PUBLIC_KEY.' }, 503);
 
     const period = body.period === 'annuel' ? 'annuel' : 'mensuel';
-    const zone = body.zone === 'intl' ? 'intl' : 'local';
+    // Zone tarifaire décidée CÔTÉ SERVEUR d'après le pays du profil (le navigateur ne choisit pas). Seul le super admin peut forcer une zone pour tester.
+    const norm = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    const LOCAL = ['cameroun', 'cameroon', 'gabon', 'congo', 'tchad', 'chad', 'centrafrique', 'republique centrafricaine', 'rca', 'guinee equatoriale', 'equatorial guinea'];
+    const { data: cp } = await admin.from('profiles').select('country').eq('id', u.user.id).maybeSingle();
+    const derived = !cp?.country || LOCAL.includes(norm(String(cp.country))) ? 'local' : 'intl';
+    const zone = isSuper && (body.zone === 'intl' || body.zone === 'local') ? body.zone : derived;
     const { data: pr } = await admin.from('pricing_config').select('*').eq('id', 1).single();
     if (!pr) return json({ error: 'Tarifs introuvables' }, 500);
     const amount = Number(zone === 'local' ? (period === 'mensuel' ? pr.monthly_amount : pr.annual_amount) : (period === 'mensuel' ? pr.monthly_amount_intl : pr.annual_amount_intl));
